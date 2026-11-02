@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Wkeel\Wkeel.csproj" />
+    <ProjectReference Include="..\Wkeel.Tests.ScanTarget\Wkeel.Tests.ScanTarget.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
     <PackageReference Include="xunit.v3" />

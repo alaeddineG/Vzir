@@ -8,5 +8,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Wkeel.Tests/Wkeel.Tests.csproj" />
+    <Project Path="tests/Wkeel.Tests.ScanTarget/Wkeel.Tests.ScanTarget.csproj" />
   </Folder>
 </Solution>

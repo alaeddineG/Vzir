@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -19,6 +20,9 @@ public sealed class WkeelBuilder
 
     private readonly NoticeOptions _notices = new();
     private readonly Dictionary<Type, NoticeOptions> _noticeOverrides = [];
+
+    private readonly HashSet<Assembly> _scanned = [];
+    private bool _validate;
 
     internal WkeelBuilder(IServiceCollection services)
     {
@@ -43,32 +47,43 @@ public sealed class WkeelBuilder
             EnsureSupported(value, nameof(lifetime));
         }
 
-        var handlerType = typeof(THandler);
-        if (handlerType.IsAbstract || handlerType.ContainsGenericParameters)
-        {
-            throw new ArgumentException($"Handler '{handlerType}' must be a concrete, closed type.", nameof(THandler));
-        }
+        EnsureHandler(typeof(THandler), nameof(THandler));
 
-        var contracts = HandlerContract.Of(handlerType).ToArray();
-        if (contracts.Length == 0)
-        {
-            throw new ArgumentException(
-                $"'{handlerType}' does not implement {nameof(IOperationHandler<>)}<>, {nameof(IRequestHandler<,>)}<,> or {nameof(INoticeHandler<>)}<>.",
-                nameof(THandler));
-        }
-
-        // Routing uses a message's exact runtime type, which is never abstract. Such a handler could
-        // not run, and for a notice nothing would ever say so, because no handlers is not an error.
-        if (contracts.FirstOrDefault(contract => contract.MessageType.IsAbstract) is { } unreachable)
-        {
-            throw new ArgumentException(
-                $"'{handlerType}' handles abstract type '{unreachable.MessageType}', and could never run: messages route on their exact runtime type.",
-                nameof(THandler));
-        }
-
-        _handlers[handlerType] = lifetime;
+        _handlers[typeof(THandler)] = lifetime;
         return this;
     }
+
+    /// <summary>Registers every handler in an assembly, public or not, as <see cref="AddHandler"/> would.</summary>
+    /// <remarks>
+    /// Abstract classes are skipped as base classes, and anything else <see cref="AddHandler"/> rejects
+    /// is rejected here too. Interceptors are not scanned. Handlers register in ordinal order of their
+    /// full names, which is the order they run in for a sequential notice. A handler that was
+    /// registered with <see cref="AddHandler"/>, before or after, keeps its explicit lifetime.
+    /// </remarks>
+    /// <param name="assembly">The assembly to scan.</param>
+    /// <returns>This builder, for chaining.</returns>
+    public WkeelBuilder ScanAssembly(Assembly assembly)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+
+        _scanned.Add(assembly);
+
+        // Sorted because GetTypes follows compiler output, which would decide the notice order otherwise.
+        foreach (var handlerType in assembly.GetTypes()
+            .Where(type => !type.IsAbstract && HandlerContract.Of(type).Any())
+            .OrderBy(type => type.FullName, StringComparer.Ordinal))
+        {
+            EnsureHandler(handlerType, nameof(assembly));
+            _handlers.TryAdd(handlerType, null);
+        }
+
+        return this;
+    }
+
+    /// <summary>Registers every handler in the assembly that defines <typeparamref name="T"/>.</summary>
+    /// <typeparam name="T">Any type in the assembly.</typeparam>
+    /// <returns>This builder, for chaining.</returns>
+    public WkeelBuilder ScanAssemblyContaining<T>() => ScanAssembly(typeof(T).Assembly);
 
     /// <summary>Sets the lifetime of handlers registered without an explicit one. Defaults to Transient.</summary>
     /// <param name="lifetime">Transient or Scoped.</param>
@@ -172,6 +187,23 @@ public sealed class WkeelBuilder
         return this;
     }
 
+    /// <summary>
+    /// Makes <c>AddWkeel</c> throw if handlers are missing or duplicated, reporting every problem at once
+    /// as an <see cref="AggregateException"/> of <see cref="HandlerNotFoundException"/> and
+    /// <see cref="AmbiguousHandlerException"/>.
+    /// </summary>
+    /// <remarks>
+    /// Duplicates are checked across all handlers. Missing handlers are checked for every concrete operation
+    /// and request in the scanned assemblies, so messages defined in an assembly that was not scanned are not
+    /// checked. Open-generic messages and notices are not checked either.
+    /// </remarks>
+    /// <returns>This builder, for chaining.</returns>
+    public WkeelBuilder ValidateOnBuild()
+    {
+        _validate = true;
+        return this;
+    }
+
     internal Registry Build()
     {
         var operations = new Dictionary<Type, List<HandlerContract>>();
@@ -198,6 +230,11 @@ public sealed class WkeelBuilder
 
                 contracts.Add(contract);
             }
+        }
+
+        if (_validate)
+        {
+            HandlerValidation.Validate(_scanned.SelectMany(assembly => assembly.GetTypes()), operations, requests);
         }
 
         return new Registry(
@@ -229,6 +266,33 @@ public sealed class WkeelBuilder
         }
 
         return interceptors;
+    }
+
+    private static void EnsureHandler(Type handlerType, string parameterName)
+    {
+        if (handlerType.IsAbstract || !handlerType.IsClass || handlerType.ContainsGenericParameters)
+        {
+            throw new ArgumentException(
+                $"Handler '{handlerType}' must be a concrete, closed class. A scan skips abstract classes, so a generic base class has to be abstract.",
+                parameterName);
+        }
+
+        var contracts = HandlerContract.Of(handlerType).ToArray();
+        if (contracts.Length == 0)
+        {
+            throw new ArgumentException(
+                $"'{handlerType}' does not implement {nameof(IOperationHandler<>)}<>, {nameof(IRequestHandler<,>)}<,> or {nameof(INoticeHandler<>)}<>.",
+                parameterName);
+        }
+
+        // Routing uses a message's exact runtime type, which is never abstract. Such a handler could
+        // not run, and for a notice nothing would ever say so, because no handlers is not an error.
+        if (contracts.FirstOrDefault(contract => contract.MessageType.IsAbstract) is { } unreachable)
+        {
+            throw new ArgumentException(
+                $"'{handlerType}' handles abstract type '{unreachable.MessageType}', and could never run: messages route on their exact runtime type.",
+                parameterName);
+        }
     }
 
     // A singleton handler would capture root-scope dependencies, which breaks the scoping rule.
