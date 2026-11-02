@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Draft v0.2 |
+| Status | Draft v0.3 |
 | Date | 2026-11-02 |
 | Owner | Aladdin |
 | Target | .NET 10, C# 14 |
@@ -110,6 +110,7 @@ Three different verbs, three different meanings. A reader never needs the receiv
 - `IRequest<T>` / `IRequestHandler<,>` are MediatR's exact names. Harmless in a clean project. In a file that imports both `MediatR` and `Wkeel`, the compiler reports CS0104. **Migration is per assembly, not per file.** The README says so.
 - `Execute` is not unique to Wkeel. MassTransit Courier has `bus.Execute(routingSlip)`, `IRoutingSlipExecutor.Execute` and `IExecuteActivity<T>.Execute`. The overlap is confined to routing slips, and `bus.Execute` only accepts a `RoutingSlip`, so the two calls cannot be swapped by accident. **A file using both Courier and Wkeel reads two `Execute`s; the variable name is the disambiguator there, and only there.** No alternative in 2.6 beats `Execute` on readability. The README says so.
 - `Operation` vs `Request` is a distinction by return type, not by meaning. Neither word says anything about reads or writes. **Documented as convention, not enforced by the type system.**
+- `Next` is a Visual Basic keyword. VB callers escape it as `[Next]`, and CA1716 is suppressed on the files that declare it.
 - `Notice` does not scream "domain event". One README line: *notices are the domain-event mechanism*.
 
 ### 2.6 Rejected alternatives (for the record)
@@ -140,7 +141,7 @@ Three different verbs, three different meanings. A reader never needs the receiv
 | F7 | On sequential notify, first handler exception aborts the remaining handlers and propagates | Must |
 | F8 | On parallel notify, all handlers run to completion; failures surface as one `AggregateException` containing every handler exception, even when only one failed | Should |
 | F9 | `IInterceptor<TMessage, TResult>` wraps `Execute` for both `IOperation` and `IRequest<T>` | Must |
-| F10 | Open-generic interceptor registration applies to all executed messages that satisfy the interceptor's generic constraints; other messages skip it silently | Must |
+| F10 | Open-generic interceptor registration applies to all executed messages that satisfy the interceptor's generic constraints; other messages skip it silently. The type must be a concrete class with two type parameters implementing `IInterceptor<,>` over them, in either order; anything else is rejected at registration | Must |
 | F11 | Closed interceptor registration applies to one message type: `IInterceptor<TRequest, TResult>` for a request, `IOperationInterceptor<TOperation>` for an operation | Must |
 | F12 | Interceptor execution order equals registration order in `AddWkeel`; no `Order` property, no attribute | Must |
 | F13 | Interceptors may short-circuit by not calling `next` | Must |
@@ -155,6 +156,7 @@ Three different verbs, three different meanings. A reader never needs the receiv
 | F22 | `CancellationToken` is a required parameter on every verb and every handler method (no optional default) | Must |
 | F23 | `AddWkeel` runs once per service collection; a second call throws rather than silently replacing the first call's routes | Must |
 | F24 | Registering the same handler type twice is one registration, and the last lifetime wins, so `ScanAssembly` plus an explicit `AddHandler` of a scanned type (4.3) does not report a false ambiguity | Must |
+| F25 | Interceptors are Transient unless the application registers them itself, and are resolved from the caller's scope only when the chain reaches them | Must |
 
 ### 3.2 Non-functional
 
@@ -330,7 +332,7 @@ sealed class LoggingInterceptor<TMessage, TResult>(ILogger<TMessage> log) : IInt
 
 1. `AddWkeel` scans assemblies, builds a `Registry`: message type → handler type(s), interceptor list, notice options.
 2. `ValidateOnBuild` walks the registry: every `IOperation` / `IRequest<T>` has exactly one handler, every interceptor type implements `IInterceptor<,>` or `IOperationInterceptor<>`. Fails fast with all errors, not the first.
-3. Per message type, one `Func<IServiceProvider, object, CancellationToken, Task<TResult>>` is built once and cached in a `FrozenDictionary<Type, ...>`. That fixes the shape of the chain: which handler, which interceptors, outermost-first. Open-generic interceptors whose constraints the message does not satisfy are left out. Instances are still resolved from `sp` on every call, and each `Next<TResult>` is a per-call closure over the message and token.
+3. Per message type, one `Func<IServiceProvider, object, CancellationToken, Task<TResult>>` is built once and cached in a `FrozenDictionary<Type, ...>`. That fixes the shape of the chain: which handler, which interceptors, outermost-first. Open-generic interceptors whose constraints the message does not satisfy are left out. With no interceptors the cached delegate calls the handler directly, which is what keeps N3 on that path. Otherwise instances are still resolved from `sp` on every call, and each `Next<TResult>` is a per-call closure over the message and token.
 4. `IWkeel.Execute` does one dictionary lookup, keyed on the message's exact runtime type, and one delegate call. No reflection, no LINQ. Without interceptors it returns the handler's `Task` directly and allocates nothing of its own.
 5. `IWkeel.Notify` looks up the handler type list, resolves each from `sp`, runs sequentially or `Task.WhenAll` per configuration. In parallel mode it inspects the completed tasks and throws the `AggregateException` itself, because `await Task.WhenAll` rethrows only the first exception.
 
@@ -364,6 +366,7 @@ Each is Context / Decision / Consequences in one row.
 | D14 | Parallel notify keeps the caller's scope | A scope per handler would isolate `DbContext` use, but breaks 5.3 and transactional consistency | Parallel handlers must not touch non-thread-safe scoped services; the constraint is documented, not enforced |
 | D15 | `Next<TResult>` takes no arguments; interceptors accept a per-call closure | `next(message, ct)` would not remove the allocation, because interceptors are resolved per scope and the chain still has to capture them | N3 is scoped to the no-interceptor path; an interceptor cannot swap the message or token |
 | D16 | `IRequest<TResult>` is invariant | A covariant marker lets `Execute<object>(getPatient)` compile, then fail at runtime claiming no handler exists, because `Task<T>` is not covariant and the cached invoker cannot be cast | The misuse is a compile error; a request cannot be passed as `IRequest<base type>` |
+| D17 | Interceptors are resolved lazily, per call | They must see the caller's scope (5.3), so they cannot be cached. Resolving only when the chain reaches them means a short-circuit never constructs what is inside it | A retry that calls `next` twice gets fresh inner interceptors; applications can pick another lifetime by registering the interceptor themselves (F25) |
 
 ---
 
