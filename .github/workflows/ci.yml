@@ -1,0 +1,38 @@
+name: CI
+
+# Scoped to code paths, so this stays idle until the solution lands with M0.
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/**
+      - tests/**
+      - samples/**
+      - benchmarks/**
+      - "*.slnx"
+      - Directory.*
+      - global.json
+  pull_request:
+    paths:
+      - src/**
+      - tests/**
+      - samples/**
+      - benchmarks/**
+      - "*.slnx"
+      - Directory.*
+      - global.json
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore
+      - run: dotnet build --no-restore --configuration Release
+      - run: dotnet test --no-build --configuration Release

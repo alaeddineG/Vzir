@@ -1,0 +1,30 @@
+name: Design proposal
+description: Challenge or extend the design in the PRD
+labels: [design]
+body:
+  - type: input
+    id: prd-reference
+    attributes:
+      label: PRD reference
+      description: The requirement, decision or open question this concerns.
+      placeholder: F18, D6, Q1, section 2.4
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is wrong, contradictory or missing, and who it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should change, with a call-site or API sketch where it helps.
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and costs
+      description: What else you considered, and what your proposal gives up. Renames need to pass the collision criteria in PRD section 2.

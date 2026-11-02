@@ -1,0 +1,28 @@
+name: Bug report
+description: Something behaves differently from the docs or the PRD
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: The smallest code or steps that show the problem.
+      render: csharp
+  - type: input
+    id: version
+    attributes:
+      label: Wkeel version or commit
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: .NET version and OS
+      placeholder: .NET 10.0.1, macOS 26
