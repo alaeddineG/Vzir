@@ -1,6 +1,6 @@
 # Contributing to Wkeel
 
-Wkeel is pre-alpha. Milestones M0 to M3 are in, and diagnostics, benchmarks and the release are still being built from the [PRD](docs/PRD.md), so scrutiny of the design is as useful as code.
+Wkeel is pre-alpha. Milestones M0 to M4 are in, and the release is still being built from the [PRD](docs/PRD.md), so scrutiny of the design is as useful as code.
 
 ## Ways to help
 
@@ -37,6 +37,8 @@ dotnet test
 Tests run on Microsoft.Testing.Platform, selected in `global.json`.
 
 Code style is defined in [.editorconfig](.editorconfig). Run `dotnet format` before committing.
+
+Benchmarks live in `benchmarks/Wkeel.Benchmarks`. BenchmarkDotNet launches the `dotnet` on your `PATH`, so check that its summary reports the architecture you meant to measure. CI builds them but does not run them.
 
 ## Pull requests
 

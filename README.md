@@ -110,6 +110,46 @@ sealed class LoggingInterceptor<TMessage, TResult>(ILogger<TMessage> log) : IInt
 dotnet run --project samples/Wkeel.Samples.Pipeline
 ```
 
+## Diagnostics
+
+`Execute` and `Notify` each start an `Activity` on the `Wkeel` source, named `Execute GetPatient` or `Notify PatientArchived`. With OpenTelemetry:
+
+```csharp
+services.AddOpenTelemetry().WithTracing(tracing => tracing.AddSource("Wkeel"));
+```
+
+| Tag | Value |
+|---|---|
+| `wkeel.verb` | `Execute` or `Notify` |
+| `wkeel.message` | The message type |
+| `wkeel.handler` | The handler type. On `Notify`, every handler in run order, joined by `, `, and absent when there are none |
+
+Handlers and interceptors run inside the `Activity`. A failure sets `Error` status and records an exception event, and a caller's cancellation does neither. A missing or ambiguous handler throws before dispatch, so it reports no `Activity`. Logging stays in interceptors.
+
+## Performance
+
+`Execute` adds 25 ns to a direct handler call, and allocates nothing. About 17 ns of that is the DI resolve any handler needs, which leaves roughly 8 ns of dispatch. The target is under 100 ns and 0 bytes.
+
+| Scenario | Mean | Allocated |
+|---|---:|---:|
+| Handler called directly | 0.43 ns | 0 |
+| Handler resolved from DI, then called | 17.7 ns | 0 |
+| `Execute` operation | 25.5 ns | 0 |
+| `Execute` request | 28.4 ns | 0 |
+| `Execute` operation, transient handler | 17.5 ns | 24 B, the handler |
+| `Execute` request, 1 interceptor | 59.4 ns | 200 B |
+| `Execute` request, 3 interceptors | 107 ns | 488 B |
+| `Notify`, 3 handlers, sequential | 53.9 ns | 32 B |
+| `Notify`, 3 handlers, parallel | 188 ns | 496 B |
+| `Execute` operation, listener attached, sampled out | 47.9 ns | 0 |
+| `Execute` operation, listener attached, recorded | 180 ns | 576 B |
+
+Handlers return cached tasks, and are scoped unless stated, so these measure dispatch and not the work. Measured on 2 November 2026 with BenchmarkDotNet 0.15.8 on an Apple M2 Max, macOS 26.6.2 and .NET 10.0.2 on native Arm64. To reproduce, on a native runtime and not under Rosetta:
+
+```sh
+dotnet run -c Release --project benchmarks/Wkeel.Benchmarks -- --filter '*'
+```
+
 ## Design rules
 
 - **Handlers share the caller's scope.** `IWkeel` is scoped and never creates a scope of its own, so a handler's `DbContext` is the caller's `DbContext`.
@@ -149,6 +189,7 @@ Wkeel is not a message bus: no transport, serialization, retry, outbox or schedu
 - Validation can only look for messages in scanned assemblies. If your messages live in a contracts assembly, scan that too, and expect any message handled by another service to be reported as missing.
 - A scan has no filter. It takes every handler in the assembly, so a test double or an unused handler has to live somewhere else.
 - There is no polymorphic notice handling. `INoticeHandler<INotice>` is rejected, so anything that must see every notice needs one handler per concrete type.
+- `Notify` reports one `Activity`, not one per handler. There is no per-handler timing, so a handler that needs it has to start its own `Activity`.
 - Parallel notify is concurrency, not threads. Handlers start in order on the calling thread and overlap at their awaits, so one that blocks synchronously holds up the rest.
 
 ## Roadmap
@@ -159,7 +200,7 @@ Wkeel is not a message bus: no transport, serialization, retry, outbox or schedu
 | M1 Pipeline | `IInterceptor`, `IOperationInterceptor`, open and closed registration, ordering | Done |
 | M2 Notify | `INotice`, `IWkeel.Notify`, sequential and parallel, exception semantics | Done |
 | M3 Scanning and validation | `ScanAssembly`, `ValidateOnBuild` | Done |
-| M4 Performance and diagnostics | `Activity`, BenchmarkDotNet suite | Planned |
+| M4 Performance and diagnostics | `Activity`, BenchmarkDotNet suite | Done |
 | M5 Release | Migration guide, NuGet `1.0.0` | Planned |
 
 The [PRD](docs/PRD.md) holds the requirements, the full vocabulary rationale, the decision log and the open questions.
