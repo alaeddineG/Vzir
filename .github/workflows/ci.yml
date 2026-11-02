@@ -41,3 +41,4 @@ jobs:
       - run: dotnet format --verify-no-changes --no-restore
       - run: dotnet build --no-restore --configuration Release
       - run: dotnet test --no-build --configuration Release
+      - run: dotnet run --no-build --configuration Release --project samples/Wkeel.Samples.Pipeline
