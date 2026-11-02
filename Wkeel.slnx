@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Wkeel.Abstractions/Wkeel.Abstractions.csproj" />
+    <Project Path="src/Wkeel/Wkeel.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Wkeel.Tests/Wkeel.Tests.csproj" />
+  </Folder>
+</Solution>

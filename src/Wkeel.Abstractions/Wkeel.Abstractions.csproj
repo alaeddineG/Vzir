@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Wkeel</RootNamespace>
+    <Description>Contracts for Wkeel, an in-process mediator for .NET. Reference this from domain assemblies. It has no dependencies.</Description>
+  </PropertyGroup>
+
+</Project>
