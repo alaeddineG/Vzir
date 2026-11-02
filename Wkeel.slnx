@@ -3,6 +3,9 @@
     <Project Path="src/Wkeel.Abstractions/Wkeel.Abstractions.csproj" />
     <Project Path="src/Wkeel/Wkeel.csproj" />
   </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Wkeel.Samples.Pipeline/Wkeel.Samples.Pipeline.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Wkeel.Tests/Wkeel.Tests.csproj" />
   </Folder>
