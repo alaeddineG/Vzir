@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Draft v0.4 |
+| Status | Draft v0.5 |
 | Date | 2026-11-02 |
 | Owner | Aladdin |
 | Target | .NET 10, C# 14 |
@@ -136,7 +136,7 @@ Three different verbs, three different meanings. A reader never needs the receiv
 | F2 | `Execute(IRequest<TResult>, CancellationToken)` routes to exactly one `IRequestHandler<T, TResult>` and returns `TResult` | Must |
 | F3 | `Notify(INotice, CancellationToken)` routes to all registered `INoticeHandler<T>` | Must |
 | F4 | Zero notice handlers is not an error | Must |
-| F5 | Notice handlers run sequentially by default, in registration order | Must |
+| F5 | Notice handlers run sequentially by default, in registration order. A scan registers its handlers at the point it is called, in ordinal order of their full type names, so the order does not depend on compiler output; an `AddHandler` before the scan runs first | Must |
 | F6 | Notice handlers can be configured to run in parallel (`Task.WhenAll`), globally or per notice type. Parallel handlers share the caller's scope (F21), so they must not use non-thread-safe scoped services such as a `DbContext`; Wkeel does not detect this. Parallel means concurrent, not multi-threaded: handlers start in registration order on the calling thread and overlap at their awaits, so a handler that blocks synchronously delays the next | Should |
 | F7 | On sequential notify, first handler exception aborts the remaining handlers and propagates | Must |
 | F8 | On parallel notify, all handlers run to completion; failures surface as one `AggregateException` containing every handler exception in registration order, even when only one failed. The exception is when the caller's token is cancelled and every failure is an `OperationCanceledException`: that propagates as a cancellation, unwrapped | Should |
@@ -146,16 +146,16 @@ Three different verbs, three different meanings. A reader never needs the receiv
 | F12 | Interceptor execution order equals registration order in `AddWkeel`; no `Order` property, no attribute | Must |
 | F13 | Interceptors may short-circuit by not calling `next` | Must |
 | F14 | `Notify` is not intercepted in v1 | Must (explicit non-feature) |
-| F15 | Assembly scanning registers all handlers found in given assemblies | Must |
+| F15 | Assembly scanning registers every handler in the given assemblies, public or not, as `AddHandler` would. Abstract classes are skipped as base classes; anything else `AddHandler` rejects is rejected, such as an open-generic or struct handler, or a handler of an abstract message (F27). Interceptors are not scanned (D6) | Must |
 | F16 | Explicit registration of a single handler type is possible without scanning | Should |
 | F17 | Handler lifetime defaults to Transient; `HandlerLifetime` changes the default and `AddHandler<T>(lifetime)` overrides it per registration. Only Transient and Scoped are accepted, because a Singleton handler would capture root-scope dependencies and break F21 | Should |
-| F18 | Startup validation (explicit opt-in via `ValidateOnBuild()`): every `IOperation` and `IRequest<T>` type found in scanned assemblies has exactly one handler; missing or duplicate handlers throw at `AddWkeel` build time with the offending type names | Must |
+| F18 | Startup validation (explicit opt-in via `ValidateOnBuild()`): every concrete `IOperation` and `IRequest<T>` type found in scanned assemblies has a handler, and no message has more than one, wherever its handlers came from. Problems throw from `AddWkeel` as one `AggregateException` of the F19 and F20 exceptions, listing all of them, even when there is only one. Each `IRequest<T>` a message implements counts, so the check answers for what `Execute` would do. Not checked: messages in assemblies that were not scanned, open-generic messages, and notices (F4) | Must |
 | F19 | Runtime: `Execute` on a message with no registered handler throws `HandlerNotFoundException` naming the message type | Must |
 | F20 | Runtime: `Execute` on a message with multiple handlers throws `AmbiguousHandlerException` naming all handler types | Must |
 | F21 | `IWkeel` is registered as Scoped and resolves handlers from the scope it was resolved in; Wkeel never creates its own scope | Must |
 | F22 | `CancellationToken` is a required parameter on every verb and every handler method (no optional default) | Must |
 | F23 | `AddWkeel` runs once per service collection; a second call throws rather than silently replacing the first call's routes | Must |
-| F24 | Registering the same handler type twice is one registration, and the last lifetime wins, so `ScanAssembly` plus an explicit `AddHandler` of a scanned type (4.3) does not report a false ambiguity | Must |
+| F24 | Registering the same handler type twice is one registration, and the last lifetime wins, so `ScanAssembly` plus an explicit `AddHandler` of a scanned type (4.3) does not report a false ambiguity. A scan states no lifetime, so it never overrides an explicit one, in either order | Must |
 | F25 | Interceptors are Transient unless the application registers them itself, and are resolved from the caller's scope only when the chain reaches them | Must |
 | F26 | `Notify` routes on the notice's exact runtime type, like `Execute`. A handler of a base notice does not receive derived notices, and a notice that reaches no handler this way is silent under F4 | Must |
 | F27 | Anything that targets an abstract message type or interface is rejected at registration, because exact-type routing means it could never apply: a handler of one (such as `INoticeHandler<INotice>`), for all three message kinds, and `Notices<T>` | Must |
@@ -333,7 +333,7 @@ sealed class LoggingInterceptor<TMessage, TResult>(ILogger<TMessage> log) : IInt
 ### 5.2 Dispatch
 
 1. `AddWkeel` scans assemblies, builds a `Registry`: message type → handler type(s), interceptor list, notice options.
-2. `ValidateOnBuild` walks the registry: every `IOperation` / `IRequest<T>` has exactly one handler, every interceptor type implements `IInterceptor<,>` or `IOperationInterceptor<>`. Fails fast with all errors, not the first.
+2. `ValidateOnBuild` compares the message types in scanned assemblies with the registered handlers, and checks every registered message for duplicates. It throws from `AddWkeel` with all errors, not the first. Interceptor types need no check here: `Intercept` rejects a bad one when it is called.
 3. Per message type, one `Func<IServiceProvider, object, CancellationToken, Task<TResult>>` is built once and cached in a `FrozenDictionary<Type, ...>`. That fixes the shape of the chain: which handler, which interceptors, outermost-first. Open-generic interceptors whose constraints the message does not satisfy are left out. With no interceptors the cached delegate calls the handler directly, which is what keeps N3 on that path. Otherwise instances are still resolved from `sp` on every call, and each `Next<TResult>` is a per-call closure over the message and token.
 4. `IWkeel.Execute` does one dictionary lookup, keyed on the message's exact runtime type, and one delegate call. No reflection, no LINQ. Without interceptors it returns the handler's `Task` directly and allocates nothing of its own.
 5. `IWkeel.Notify` looks up the notice's exact runtime type and, on a miss, returns a completed task. On a hit, a delegate built once for that notice type and mode resolves every handler from `sp` up front, then runs them sequentially or under `Task.WhenAll`. In parallel mode each handler's exception is captured around its own call, because `await Task.WhenAll` rethrows only the first exception, and a handler that throws before returning a `Task` would otherwise stop the ones after it. `Notify` then builds the `AggregateException` itself. Resolving up front means a handler that cannot be constructed fails the whole `Notify` before any handler runs, in both modes.
@@ -371,6 +371,8 @@ Each is Context / Decision / Consequences in one row.
 | D17 | Interceptors are resolved lazily, per call | They must see the caller's scope (5.3), so they cannot be cached. Resolving only when the chain reaches them means a short-circuit never constructs what is inside it | A retry that calls `next` twice gets fresh inner interceptors; applications can pick another lifetime by registering the interceptor themselves (F25) |
 | D18 | Notices route on the exact runtime type, with no base-type fan-out | One rule across all three message kinds, a cached delegate per concrete type, and no hidden handlers on an inheritance chain. A catch-all handler would also make F4's silence harder to reason about | Polymorphic handlers are not supported, and the `in` on `INoticeHandler<>` has no effect on routing. Cross-cutting behaviour on notices needs a handler per concrete type (F26, F27) |
 | D19 | A caller's cancellation of parallel notify stays a cancellation | `catch (OperationCanceledException)` and `Task.IsCanceled` are how .NET callers detect it, and an `AggregateException` would hide it from both. It only applies when the caller's token fired and nothing else failed, so a handler's own timeout and a real failure next to a cancellation still aggregate | F8 has one exception. A caller still has to handle both outcomes |
+| D20 | Validation failures reuse `HandlerNotFoundException` and `AmbiguousHandlerException` inside an `AggregateException` | The startup failure and the runtime failure are the same fact, so callers already know these types, and F8 set the precedent for reporting many failures. No new public type (N8) | The outer type says nothing Wkeel-specific; tooling reads `InnerExceptions` |
+| D21 | A scan sorts handlers by full type name | `GetTypes` follows compiler output, so a renamed or added file could silently reorder sequential notice handlers (F5). Ordinal comparison gives every build and machine the same order | The order is stable but not meaningful. A notice whose handlers depend on order registers them with `AddHandler` before the scan |
 
 ---
 
