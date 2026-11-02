@@ -59,6 +59,14 @@ dotnet_diagnostic.CA2007.severity = none
 # Next is settled vocabulary (PRD 2.1). It is a VB keyword, which VB callers escape as [Next]
 dotnet_diagnostic.CA1716.severity = none
 
+[benchmarks/**.cs]
+# Applications have no reason to use ConfigureAwait
+dotnet_diagnostic.CA2007.severity = none
+# Interface-typed fields keep the baseline paying for interface dispatch, as real callers do
+dotnet_diagnostic.CA1859.severity = none
+# BenchmarkDotNet disposes through GlobalCleanup, not IDisposable
+dotnet_diagnostic.CA1001.severity = none
+
 [samples/**.cs]
 # Applications have no reason to use ConfigureAwait
 dotnet_diagnostic.CA2007.severity = none
