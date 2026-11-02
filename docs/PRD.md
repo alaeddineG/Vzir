@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Draft v0.5 |
+| Status | Draft v0.6 |
 | Date | 2026-11-02 |
 | Owner | Aladdin |
 | Target | .NET 10, C# 14 |
@@ -167,12 +167,12 @@ Three different verbs, three different meanings. A reader never needs the receiv
 | N1 | Dependencies of `Wkeel.Abstractions` | none |
 | N2 | Dependencies of `Wkeel` | `Microsoft.Extensions.DependencyInjection.Abstractions` only |
 | N3 | Allocations per `Execute` with no interceptors and no `Activity` listener, excluding handler, message and the `Task` the handler returns | 0 after warm-up: the dispatcher returns the handler's `Task` directly. Each interceptor adds a per-call `Next` closure, which is accepted (D15) |
-| N4 | Overhead per `Execute` vs direct handler invocation, no interceptors | < 100 ns on Apple M-series, measured by BenchmarkDotNet |
+| N4 | Overhead per `Execute` vs direct handler invocation, no interceptors | < 100 ns on Apple M-series, measured by BenchmarkDotNet on a native Arm64 runtime, not under Rosetta |
 | N5 | Reflection | startup only; runtime dispatch via cached `Func<>` per message type |
 | N6 | Thread safety | `IWkeel` safe for concurrent use within a scope. That covers Wkeel's own state; services resolved for handlers are only as thread-safe as they are themselves |
 | N7 | Trimming / AOT | Not supported in v1. `IsTrimmable` stays off, because assembly scanning and `MakeGenericType` are not trim-safe. Both are deferred to the v2 source generator |
 | N8 | Public API surface | under 15 public types in `Wkeel.Abstractions` |
-| N9 | Diagnostics | `System.Diagnostics.Activity` per `Execute` and `Notify`, source name `Wkeel`, tags: `wkeel.message`, `wkeel.handler`, `wkeel.verb` |
+| N9 | Diagnostics | `System.Diagnostics.Activity` per `Execute` and `Notify`, source name `Wkeel`, kind Internal, named `{verb} {message}` such as `Execute GetPatient`, tags: `wkeel.message`, `wkeel.handler`, `wkeel.verb`. On `Notify`, `wkeel.handler` lists the handlers in run order, joined by `, `, and is absent when there are none. A failure sets `Error` status and records an exception event; a caller's cancellation does neither (D19). A missing or ambiguous handler throws before dispatch and starts no `Activity` |
 | N10 | Logging | none built in; interceptors are the logging extension point |
 | N11 | Test coverage | 90% line, 100% of public API |
 
@@ -335,8 +335,9 @@ sealed class LoggingInterceptor<TMessage, TResult>(ILogger<TMessage> log) : IInt
 1. `AddWkeel` scans assemblies, builds a `Registry`: message type → handler type(s), interceptor list, notice options.
 2. `ValidateOnBuild` compares the message types in scanned assemblies with the registered handlers, and checks every registered message for duplicates. It throws from `AddWkeel` with all errors, not the first. Interceptor types need no check here: `Intercept` rejects a bad one when it is called.
 3. Per message type, one `Func<IServiceProvider, object, CancellationToken, Task<TResult>>` is built once and cached in a `FrozenDictionary<Type, ...>`. That fixes the shape of the chain: which handler, which interceptors, outermost-first. Open-generic interceptors whose constraints the message does not satisfy are left out. With no interceptors the cached delegate calls the handler directly, which is what keeps N3 on that path. Otherwise instances are still resolved from `sp` on every call, and each `Next<TResult>` is a per-call closure over the message and token.
-4. `IWkeel.Execute` does one dictionary lookup, keyed on the message's exact runtime type, and one delegate call. No reflection, no LINQ. Without interceptors it returns the handler's `Task` directly and allocates nothing of its own.
+4. `IWkeel.Execute` does one dictionary lookup, keyed on the message's exact runtime type, one listener check and one delegate call. No reflection, no LINQ. Without interceptors it returns the handler's `Task` directly and allocates nothing of its own.
 5. `IWkeel.Notify` looks up the notice's exact runtime type and, on a miss, returns a completed task. On a hit, a delegate built once for that notice type and mode resolves every handler from `sp` up front, then runs them sequentially or under `Task.WhenAll`. In parallel mode each handler's exception is captured around its own call, because `await Task.WhenAll` rethrows only the first exception, and a handler that throws before returning a `Task` would otherwise stop the ones after it. `Notify` then builds the `AggregateException` itself. Resolving up front means a handler that cannot be constructed fails the whole `Notify` before any handler runs, in both modes.
+6. When something listens to the `Wkeel` source, `Execute` and `Notify` go through an async wrapper that starts the `Activity`, awaits the chain and stops it, using a name and tags computed at startup. It sits outside the interceptors, so they run inside the `Activity`. Without a listener the wrapper is never entered.
 
 ### 5.3 Scoping rule
 
@@ -373,6 +374,8 @@ Each is Context / Decision / Consequences in one row.
 | D19 | A caller's cancellation of parallel notify stays a cancellation | `catch (OperationCanceledException)` and `Task.IsCanceled` are how .NET callers detect it, and an `AggregateException` would hide it from both. It only applies when the caller's token fired and nothing else failed, so a handler's own timeout and a real failure next to a cancellation still aggregate | F8 has one exception. A caller still has to handle both outcomes |
 | D20 | Validation failures reuse `HandlerNotFoundException` and `AmbiguousHandlerException` inside an `AggregateException` | The startup failure and the runtime failure are the same fact, so callers already know these types, and F8 set the precedent for reporting many failures. No new public type (N8) | The outer type says nothing Wkeel-specific; tooling reads `InnerExceptions` |
 | D21 | A scan sorts handlers by full type name | `GetTypes` follows compiler output, so a renamed or added file could silently reorder sequential notice handlers (F5). Ordinal comparison gives every build and machine the same order | The order is stable but not meaningful. A notice whose handlers depend on order registers them with `AddHandler` before the scan |
+| D22 | Tracing runs behind `HasListeners`, in an async wrapper around the whole chain | Keeping an `Activity` open until the handler finishes takes an async method, which N3 cannot afford on the common path. The same method is what stops `Activity.Current` leaking to the caller, because a non-async `Execute` would leave it set | With a listener, a handler that throws synchronously faults the returned `Task` instead of throwing from the call. `await` sees no difference |
+| D23 | One `Activity` per `Notify`, not per handler, with the handlers in one string tag | N9 asks for one per verb, and a string keeps `wkeel.handler` one type across both verbs, which tracing backends expect | No per-handler timing, and no way to see which handler failed except the exception. A handler that needs its own timing starts its own `Activity` |
 
 ---
 
