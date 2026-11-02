@@ -64,9 +64,9 @@ Settled by one criterion: **no verb may collide with MassTransit's public API**,
         Execute ──► IRequest<TResult>  ──► exactly one handler ──► TResult
          Notify ──► INotice            ──► 0..n handlers       ──► (void)
 
-                      ┌───────────────────────────────────────┐
+                      ┌───────────────────────────────────────────┐
    Execute(msg) ─────►│ Interceptor 1 ─► Interceptor 2 ─► Handler │─────► result
-                      └───────────────────────────────────────┘
+                      └───────────────────────────────────────────┘
                        registration order = execution order, outermost first
 ```
 
@@ -285,15 +285,15 @@ sealed class LoggingInterceptor<TMessage, TResult>(ILogger<TMessage> log) : IInt
 ### 5.1 Components
 
 ```
-  ┌─────────────────────────────────────────────────────────────────┐
+  ┌──────────────────────────────────────────────────────────────────┐
   │ Wkeel.Abstractions                                               │
   │   IOperation, IRequest<T>, INotice                               │
   │   IOperationHandler<>, IRequestHandler<,>, INoticeHandler<>      │
   │   IInterceptor<,>, Next<T>, IWkeel, exceptions                   │
-  └─────────────────────────────────────────────────────────────────┘
+  └──────────────────────────────────────────────────────────────────┘
                                    ▲
                                    │ references
-  ┌─────────────────────────────────────────────────────────────────┐
+  ┌──────────────────────────────────────────────────────────────────┐
   │ Wkeel                                                            │
   │                                                                  │
   │  AddWkeel ──► WkeelBuilder ──► Registry (built once)             │
@@ -307,7 +307,7 @@ sealed class LoggingInterceptor<TMessage, TResult>(ILogger<TMessage> log) : IInt
   │              └─────────────────────────────────────┘             │
   │                                   │                              │
   │   IWkeel (scoped) ──► Execute/Notify ──► cache lookup ──► invoke │
-  └─────────────────────────────────────────────────────────────────┘
+  └──────────────────────────────────────────────────────────────────┘
 ```
 
 ### 5.2 Dispatch
