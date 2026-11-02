@@ -7,7 +7,7 @@ public static class WkeelServiceCollectionExtensions
 {
     /// <summary>Registers <see cref="IWkeel"/> as scoped, along with the configured handlers.</summary>
     /// <param name="services">The service collection.</param>
-    /// <param name="configure">Configures handlers and their lifetimes.</param>
+    /// <param name="configure">Configures handlers, their lifetimes and the interceptor chain.</param>
     /// <returns>The same service collection, for chaining.</returns>
     /// <exception cref="InvalidOperationException"><c>AddWkeel</c> was already called on this collection.</exception>
     public static IServiceCollection AddWkeel(this IServiceCollection services, Action<WkeelBuilder> configure)
@@ -21,10 +21,10 @@ public static class WkeelServiceCollectionExtensions
                 $"{nameof(AddWkeel)} can only be called once. A second call would silently replace the first call's routes.");
         }
 
-        var builder = new WkeelBuilder();
+        var builder = new WkeelBuilder(services);
         configure(builder);
 
-        services.AddSingleton(builder.Build(services));
+        services.AddSingleton(builder.Build());
         services.AddScoped<IWkeel, Dispatcher>();
         return services;
     }

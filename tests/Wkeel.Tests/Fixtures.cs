@@ -54,6 +54,13 @@ internal sealed class SecondGetNameHandler : IRequestHandler<GetName, string>
     public Task<string> Handle(GetName request, CancellationToken ct) => Task.FromResult("second");
 }
 
+internal sealed record GetTitle(int Id) : IRequest<string>;
+
+internal sealed class GetTitleHandler : IRequestHandler<GetTitle, string>
+{
+    public Task<string> Handle(GetTitle request, CancellationToken ct) => Task.FromResult($"title-{request.Id}");
+}
+
 internal readonly record struct Touch(int Id) : IOperation;
 
 internal sealed class TouchHandler(Journal journal) : IOperationHandler<Touch>
@@ -116,6 +123,11 @@ internal sealed record TwoResults : IRequest<int>, IRequest<string>;
 internal sealed class TwoResultsIntHandler : IRequestHandler<TwoResults, int>
 {
     public Task<int> Handle(TwoResults request, CancellationToken ct) => Task.FromResult(1);
+}
+
+internal sealed class TwoResultsStringHandler : IRequestHandler<TwoResults, string>
+{
+    public Task<string> Handle(TwoResults request, CancellationToken ct) => Task.FromResult("text");
 }
 
 internal sealed record BothKinds : IOperation, IRequest<int>;

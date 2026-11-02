@@ -26,8 +26,19 @@ internal sealed record HandlerContract(Type HandlerType, Type ServiceType, Type 
         }
     }
 
-    public Delegate CreateInvoker() =>
-        ResultType is null
+    /// <summary>Builds the cached invoker. With no interceptors it skips the pipeline, which is what keeps that path allocation-free.</summary>
+    public Delegate CreateInvoker(Type[] interceptors)
+    {
+        if (interceptors.Length > 0)
+        {
+            var pipeline = ResultType is null
+                ? Method(nameof(OperationPipeline)).MakeGenericMethod(MessageType)
+                : Method(nameof(RequestPipeline)).MakeGenericMethod(MessageType, ResultType);
+
+            return (Delegate)pipeline.Invoke(null, [interceptors])!;
+        }
+
+        return ResultType is null
             ? Method(nameof(InvokeOperation))
                 .MakeGenericMethod(MessageType)
                 .CreateDelegate<Func<IServiceProvider, object, CancellationToken, Task>>()
@@ -35,6 +46,7 @@ internal sealed record HandlerContract(Type HandlerType, Type ServiceType, Type 
                 .MakeGenericMethod(MessageType, ResultType)
                 .CreateDelegate(typeof(Func<,,,>).MakeGenericType(
                     typeof(IServiceProvider), typeof(object), typeof(CancellationToken), typeof(Task<>).MakeGenericType(ResultType)));
+    }
 
     private static MethodInfo Method(string name) =>
         typeof(HandlerContract).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -46,4 +58,23 @@ internal sealed record HandlerContract(Type HandlerType, Type ServiceType, Type 
     private static Task<TResult> InvokeRequest<TRequest, TResult>(IServiceProvider services, object request, CancellationToken ct)
         where TRequest : IRequest<TResult> =>
         services.GetRequiredService<IRequestHandler<TRequest, TResult>>().Handle((TRequest)request, ct);
+
+    private static Func<IServiceProvider, object, CancellationToken, Task<Nothing>> OperationPipeline<TOperation>(Type[] interceptors)
+        where TOperation : IOperation =>
+        new Pipeline<TOperation, Nothing>(interceptors, RunOperationHandler<TOperation>).Invoke;
+
+    private static Func<IServiceProvider, object, CancellationToken, Task<TResult>> RequestPipeline<TRequest, TResult>(Type[] interceptors)
+        where TRequest : IRequest<TResult> =>
+        new Pipeline<TRequest, TResult>(interceptors, RunRequestHandler<TRequest, TResult>).Invoke;
+
+    private static async Task<Nothing> RunOperationHandler<TOperation>(IServiceProvider services, TOperation operation, CancellationToken ct)
+        where TOperation : IOperation
+    {
+        await services.GetRequiredService<IOperationHandler<TOperation>>().Handle(operation, ct).ConfigureAwait(false);
+        return default;
+    }
+
+    private static Task<TResult> RunRequestHandler<TRequest, TResult>(IServiceProvider services, TRequest request, CancellationToken ct)
+        where TRequest : IRequest<TResult> =>
+        services.GetRequiredService<IRequestHandler<TRequest, TResult>>().Handle(request, ct);
 }
