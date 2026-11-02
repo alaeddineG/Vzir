@@ -2,14 +2,14 @@
 
 [![License: MIT](https://img.shields.io/github/license/alaeddineG/Wkeel)](LICENSE)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/download/dotnet/10.0)
-[![Status: design](https://img.shields.io/badge/status-design-orange)](docs/PRD.md)
+[![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-orange)](#roadmap)
 
 An in-process mediator for .NET. Route a message to its one handler, wrap the call in interceptors, fan a notice out to whoever listens. No transport, no framework, one dependency.
 
 **Wkeel** is the Tunisian pronunciation of وكيل (*wakīl*), the person you delegate to. You hand it the request, it deals with the party you never see.
 
 > [!IMPORTANT]
-> Wkeel is at the design stage: there is no code and no NuGet package yet. The snippets below show the API proposed in the [PRD](docs/PRD.md), and names may still change. Design feedback is the most useful contribution right now, see [Contributing](#contributing).
+> Wkeel is pre-alpha and there is no NuGet package yet. Only `Execute` and explicit handler registration work today. The snippets below show the full v1 API from the [PRD](docs/PRD.md), so `Notify`, interceptors and scanning are still to come and names may change. See the [roadmap](#roadmap).
 
 ## Why
 
@@ -46,7 +46,7 @@ Three verbs, three meanings. A reader never needs the receiver's variable name.
 
 Each message kind has a matching handler interface: `IOperationHandler<T>`, `IRequestHandler<T, TResult>` and `INoticeHandler<T>`.
 
-## Intended API
+## API
 
 Define messages and handlers:
 
@@ -89,8 +89,8 @@ services.AddWkeel(w => w
 - **Handlers share the caller's scope.** `IWkeel` is scoped and never creates a scope of its own, so a handler's `DbContext` is the caller's `DbContext`.
 - **Interceptor order is registration order.** No `Order` property, no attributes. Order is visible in exactly one place.
 - **`CancellationToken` is required** on every verb and every handler method.
-- **Configuration bugs fail at startup.** Missing or duplicate handlers are reported together, with type names. Validation is on by default in Development, and `Execute` still throws a typed exception at runtime.
-- **Notice handlers run sequentially by default.** The first exception stops the rest. `Notify` is not intercepted in v1.
+- **Configuration bugs can fail at startup.** `.ValidateOnBuild()` reports every missing or duplicate handler at once, with type names. It is opt-in, so gate it on your own environment. `Execute` still throws a typed exception at runtime.
+- **Notice handlers run sequentially by default.** The first exception stops the rest. Parallel is opt-in and shares the caller's scope, so it only suits handlers that stay away from non-thread-safe scoped services such as a `DbContext`. `Notify` is not intercepted in v1.
 - **Reflection at startup, cached delegates at runtime.** No source generators in v1.
 
 ## Not in scope
@@ -120,11 +120,11 @@ Wkeel is not a message bus: no transport, serialization, retry, outbox or schedu
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M0 Skeleton | Abstractions, `IWkeel`, `Execute`, explicit registration | Planned |
-| M1 Pipeline | `IInterceptor`, open and closed registration, ordering | Planned |
-| M2 Notify | `INotice`, sequential and parallel, exception semantics | Planned |
-| M3 Scanning and validation | `ScanAssembly`, `ValidateOnBuild`, typed exceptions | Planned |
-| M4 Performance and diagnostics | Delegate cache, `Activity`, BenchmarkDotNet suite | Planned |
+| M0 Skeleton | `IWkeel.Execute`, explicit registration, delegate cache, typed exceptions | Done |
+| M1 Pipeline | `IInterceptor`, `IOperationInterceptor`, open and closed registration, ordering | Planned |
+| M2 Notify | `INotice`, `IWkeel.Notify`, sequential and parallel, exception semantics | Planned |
+| M3 Scanning and validation | `ScanAssembly`, `ValidateOnBuild` | Planned |
+| M4 Performance and diagnostics | `Activity`, BenchmarkDotNet suite | Planned |
 | M5 Release | Migration guide, NuGet `1.0.0` | Planned |
 
 The [PRD](docs/PRD.md) holds the requirements, the full vocabulary rationale, the decision log and the open questions.

@@ -1,6 +1,6 @@
 # Contributing to Wkeel
 
-Wkeel is at the design stage. There is no code to patch yet, so the most useful contribution is scrutiny of the [PRD](docs/PRD.md).
+Wkeel is pre-alpha. Milestone M0 is in and the rest of the v1 API is still being built from the [PRD](docs/PRD.md), so scrutiny of the design is as useful as code.
 
 ## Ways to help
 
@@ -27,12 +27,14 @@ These come from the PRD, and pull requests are expected to respect them:
 
 ## Development
 
-You need the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). Once the solution lands with milestone M0:
+You need the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 ```sh
 dotnet build
 dotnet test
 ```
+
+Tests run on Microsoft.Testing.Platform, selected in `global.json`.
 
 Code style is defined in [.editorconfig](.editorconfig). Run `dotnet format` before committing.
 
