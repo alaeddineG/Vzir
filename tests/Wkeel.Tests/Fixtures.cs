@@ -185,3 +185,10 @@ internal abstract class AbstractHandler : IOperationHandler<Archive>
 {
     public abstract Task Handle(Archive operation, CancellationToken ct);
 }
+
+/// <summary>
+/// An <c>ActivityListener</c> is process-wide. These tests are kept apart from the rest so that one
+/// cannot put another test on the traced path, least of all one that is measuring allocations.
+/// </summary>
+[CollectionDefinition(nameof(ActivityListeners), DisableParallelization = true)]
+public sealed class ActivityListeners;

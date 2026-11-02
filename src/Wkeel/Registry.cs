@@ -3,7 +3,7 @@ using System.Collections.Frozen;
 namespace Wkeel;
 
 /// <summary>The cached invoker for one message type. <c>Invoker</c> is typed by the message's result.</summary>
-internal sealed record Route(Delegate Invoker, IReadOnlyList<Type> HandlerTypes);
+internal sealed record Route(Delegate Invoker, IReadOnlyList<Type> HandlerTypes, MessageTrace Trace);
 
 /// <summary>Message type to route, built once at startup.</summary>
 /// <remarks>
@@ -13,17 +13,16 @@ internal sealed record Route(Delegate Invoker, IReadOnlyList<Type> HandlerTypes)
 internal sealed class Registry(
     FrozenDictionary<Type, Route> operations,
     FrozenDictionary<Type, Route> requests,
-    FrozenDictionary<Type, Func<IServiceProvider, object, CancellationToken, Task>> notices)
+    FrozenDictionary<Type, Route> notices)
 {
-    public Delegate Operation(Type messageType) => Find(operations, messageType);
+    public Route Operation(Type messageType) => Find(operations, messageType);
 
-    public Delegate Request(Type messageType) => Find(requests, messageType);
+    public Route Request(Type messageType) => Find(requests, messageType);
 
     /// <summary>Finds the fan-out for a notice, or <see langword="null"/> when nothing handles it, which is not an error.</summary>
-    public Func<IServiceProvider, object, CancellationToken, Task>? Notice(Type noticeType) =>
-        notices.GetValueOrDefault(noticeType);
+    public Route? Notice(Type noticeType) => notices.GetValueOrDefault(noticeType);
 
-    private static Delegate Find(FrozenDictionary<Type, Route> routes, Type messageType)
+    private static Route Find(FrozenDictionary<Type, Route> routes, Type messageType)
     {
         if (!routes.TryGetValue(messageType, out var route))
         {
@@ -35,6 +34,6 @@ internal sealed class Registry(
             throw new AmbiguousHandlerException(messageType, route.HandlerTypes);
         }
 
-        return route.Invoker;
+        return route;
     }
 }

@@ -208,7 +208,7 @@ public sealed class WkeelBuilder
     {
         var operations = new Dictionary<Type, List<HandlerContract>>();
         var requests = new Dictionary<Type, List<HandlerContract>>();
-        var notices = new HashSet<Type>();
+        var notices = new Dictionary<Type, List<HandlerContract>>();
 
         foreach (var (handlerType, lifetime) in _handlers)
         {
@@ -216,13 +216,13 @@ public sealed class WkeelBuilder
             {
                 _services.Add(new ServiceDescriptor(contract.ServiceType, handlerType, lifetime ?? _defaultLifetime));
 
-                if (contract.Kind is MessageKind.Notice)
+                var routes = contract.Kind switch
                 {
-                    notices.Add(contract.MessageType);
-                    continue;
-                }
+                    MessageKind.Operation => operations,
+                    MessageKind.Request => requests,
+                    _ => notices,
+                };
 
-                var routes = contract.Kind is MessageKind.Operation ? operations : requests;
                 if (!routes.TryGetValue(contract.MessageType, out var contracts))
                 {
                     routes[contract.MessageType] = contracts = [];
@@ -238,20 +238,30 @@ public sealed class WkeelBuilder
         }
 
         return new Registry(
-            ToRoutes(operations),
-            ToRoutes(requests),
-            notices.ToFrozenDictionary(notice => notice, notice => NoticeDispatch.Create(notice, IsParallel(notice))));
+            ToRoutes(operations, MessageTrace.Execute, Invoker),
+            ToRoutes(requests, MessageTrace.Execute, Invoker),
+            ToRoutes(notices, MessageTrace.Notify, NoticeInvoker));
     }
 
     private bool IsParallel(Type noticeType) =>
         _noticeOverrides.GetValueOrDefault(noticeType)?.IsParallel ?? _notices.IsParallel ?? false;
 
-    private FrozenDictionary<Type, Route> ToRoutes(Dictionary<Type, List<HandlerContract>> contracts) =>
+    private static FrozenDictionary<Type, Route> ToRoutes(
+        Dictionary<Type, List<HandlerContract>> contracts,
+        string verb,
+        Func<HandlerContract, Delegate> invoker) =>
         contracts.ToFrozenDictionary(
             entry => entry.Key,
-            entry => new Route(
-                entry.Value[0].CreateInvoker(InterceptorsFor(entry.Value[0])),
-                [.. entry.Value.Select(contract => contract.HandlerType)]));
+            entry =>
+            {
+                Type[] handlerTypes = [.. entry.Value.Select(contract => contract.HandlerType)];
+                return new Route(invoker(entry.Value[0]), handlerTypes, new MessageTrace(verb, entry.Key, handlerTypes));
+            });
+
+    private Delegate Invoker(HandlerContract contract) => contract.CreateInvoker(InterceptorsFor(contract));
+
+    private Delegate NoticeInvoker(HandlerContract contract) =>
+        NoticeDispatch.Create(contract.MessageType, IsParallel(contract.MessageType));
 
     private Type[] InterceptorsFor(HandlerContract contract)
     {

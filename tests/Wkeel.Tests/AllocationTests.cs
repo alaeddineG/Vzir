@@ -4,6 +4,7 @@ using static Wkeel.Tests.Fixture;
 namespace Wkeel.Tests;
 
 /// <summary>Guards N3. A slip onto the pipeline changes no behavior, so only measuring catches it.</summary>
+[Collection(nameof(ActivityListeners))]
 public sealed class AllocationTests
 {
     [Fact]
@@ -26,6 +27,19 @@ public sealed class AllocationTests
         Assert.True(Measure(() => wkeel.Execute(request, CancellationToken.None)) < 1);
     }
 
+    // An async wrapper can hide from the measurement above: it allocates nothing when it finishes
+    // synchronously with a cached result. N3 promises more than that, so check the task itself.
+    [Fact]
+    public void Execute_without_interceptors_or_a_listener_returns_the_handlers_own_task()
+    {
+        using var provider = Provider(w => w.AddHandler<CachedOperationHandler>().AddHandler<CachedRequestHandler>());
+        using var scope = provider.CreateScope();
+        var wkeel = scope.ServiceProvider.GetRequiredService<IWkeel>();
+
+        Assert.Same(CachedOperationHandler.Result, wkeel.Execute(new CachedOperation(), CancellationToken.None));
+        Assert.Same(CachedRequestHandler.Result, wkeel.Execute(new CachedRequest(), CancellationToken.None));
+    }
+
     private static double Measure(Func<Task> execute)
     {
         const int Calls = 20_000;
@@ -43,14 +57,16 @@ internal sealed record CachedOperation : IOperation;
 
 internal sealed class CachedOperationHandler : IOperationHandler<CachedOperation>
 {
-    public Task Handle(CachedOperation operation, CancellationToken ct) => Task.CompletedTask;
+    public static Task Result { get; } = Task.FromResult(1);
+
+    public Task Handle(CachedOperation operation, CancellationToken ct) => Result;
 }
 
 internal sealed record CachedRequest : IRequest<int>;
 
 internal sealed class CachedRequestHandler : IRequestHandler<CachedRequest, int>
 {
-    private static readonly Task<int> _result = Task.FromResult(1);
+    public static Task<int> Result { get; } = Task.FromResult(1);
 
-    public Task<int> Handle(CachedRequest request, CancellationToken ct) => _result;
+    public Task<int> Handle(CachedRequest request, CancellationToken ct) => Result;
 }
