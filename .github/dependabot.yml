@@ -4,3 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      microsoft-extensions:
+        patterns:
+          - Microsoft.Extensions.*
