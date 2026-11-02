@@ -28,8 +28,6 @@ public sealed class NotifyTests
             }
         });
 
-    private static string[] Sequence(params string[] names) => [.. names.SelectMany(name => new[] { $"{name}:in", $"{name}:out" })];
-
     [Theory]
     [InlineData(0, false)]
     [InlineData(1, false)]

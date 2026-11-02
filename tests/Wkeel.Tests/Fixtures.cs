@@ -7,6 +7,9 @@ internal static class Fixture
 {
     public static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>What listeners journal when each finishes before the next one starts.</summary>
+    public static string[] Sequence(params string[] names) => [.. names.SelectMany(name => new[] { $"{name}:in", $"{name}:out" })];
+
     public static ServiceProvider Provider(Action<WkeelBuilder> configure, Action<IServiceCollection>? services = null)
     {
         var collection = new ServiceCollection();

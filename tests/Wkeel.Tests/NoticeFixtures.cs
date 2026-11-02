@@ -220,3 +220,8 @@ internal sealed class HandlesAbstractRequest : IRequestHandler<AbstractRequest, 
 {
     public Task<int> Handle(AbstractRequest request, CancellationToken ct) => Task.FromResult(1);
 }
+
+/// <summary>Ordinal puts C before b. A culture-aware comparison would put them the other way round.</summary>
+internal sealed class CasedListenerC(Journal journal) : Listener<PatientMoved>(journal, "C");
+
+internal sealed class CasedListenerb(Journal journal) : Listener<PatientMoved>(journal, "b");
