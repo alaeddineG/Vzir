@@ -9,12 +9,12 @@ await using var provider = new ServiceCollection()
     .AddSingleton<PatientCache>()
     .AddSingleton<AuditTrail>()
     .AddWkeel(w => w
-        .AddHandler<GetPatientHandler>()
-        .AddHandler<ArchivePatientHandler>()
+        .ScanAssemblyContaining<GetPatient>()            // finds both handlers, internal ones included
         .Intercept(typeof(LoggingInterceptor<,>))        // open generic, every message, outermost
         .Intercept(typeof(ValidationInterceptor<,>))     // open generic, only IValidated messages
         .Intercept<GetPatient, Patient, GetPatientCache>()    // closed, one request
-        .Intercept<ArchivePatient, ArchivePatientAudit>())    // closed, one operation
+        .Intercept<ArchivePatient, ArchivePatientAudit>()     // closed, one operation
+        .ValidateOnBuild())                              // a missing or duplicate handler fails here
     .BuildServiceProvider();
 
 await using var scope = provider.CreateAsyncScope();
