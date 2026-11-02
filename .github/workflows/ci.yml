@@ -1,6 +1,6 @@
 name: CI
 
-# Scoped to code paths, so this stays idle until the solution lands with M0.
+# Scoped to code and build inputs, so documentation changes skip CI.
 on:
   push:
     branches: [main]
@@ -12,6 +12,8 @@ on:
       - "*.slnx"
       - Directory.*
       - global.json
+      - .editorconfig
+      - .github/workflows/ci.yml
   pull_request:
     paths:
       - src/**
@@ -21,6 +23,8 @@ on:
       - "*.slnx"
       - Directory.*
       - global.json
+      - .editorconfig
+      - .github/workflows/ci.yml
 
 permissions:
   contents: read
@@ -34,5 +38,6 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - run: dotnet restore
+      - run: dotnet format --verify-no-changes --no-restore
       - run: dotnet build --no-restore --configuration Release
       - run: dotnet test --no-build --configuration Release
