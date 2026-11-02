@@ -17,6 +17,9 @@ public sealed class WkeelBuilder
     // for a message and result, or null when the registration does not apply to that message.
     private readonly List<Func<Type, Type, Type?>> _interceptors = [];
 
+    private readonly NoticeOptions _notices = new();
+    private readonly Dictionary<Type, NoticeOptions> _noticeOverrides = [];
+
     internal WkeelBuilder(IServiceCollection services)
     {
         _services = services;
@@ -24,8 +27,9 @@ public sealed class WkeelBuilder
 
     /// <summary>Registers a handler for every message type it handles.</summary>
     /// <typeparam name="THandler">
-    /// A concrete, closed type implementing <see cref="IOperationHandler{TOperation}"/>
-    /// or <see cref="IRequestHandler{TRequest, TResult}"/>.
+    /// A concrete, closed type implementing <see cref="IOperationHandler{TOperation}"/>,
+    /// <see cref="IRequestHandler{TRequest, TResult}"/> or <see cref="INoticeHandler{TNotice}"/>
+    /// for concrete message types.
     /// </typeparam>
     /// <param name="lifetime">
     /// Overrides the default set by <see cref="HandlerLifetime"/>. Transient or Scoped.
@@ -45,10 +49,20 @@ public sealed class WkeelBuilder
             throw new ArgumentException($"Handler '{handlerType}' must be a concrete, closed type.", nameof(THandler));
         }
 
-        if (!HandlerContract.Of(handlerType).Any())
+        var contracts = HandlerContract.Of(handlerType).ToArray();
+        if (contracts.Length == 0)
         {
             throw new ArgumentException(
-                $"'{handlerType}' does not implement {nameof(IOperationHandler<>)}<> or {nameof(IRequestHandler<,>)}<,>.",
+                $"'{handlerType}' does not implement {nameof(IOperationHandler<>)}<>, {nameof(IRequestHandler<,>)}<,> or {nameof(INoticeHandler<>)}<>.",
+                nameof(THandler));
+        }
+
+        // Routing uses a message's exact runtime type, which is never abstract. Such a handler could
+        // not run, and for a notice nothing would ever say so, because no handlers is not an error.
+        if (contracts.FirstOrDefault(contract => contract.MessageType.IsAbstract) is { } unreachable)
+        {
+            throw new ArgumentException(
+                $"'{handlerType}' handles abstract type '{unreachable.MessageType}', and could never run: messages route on their exact runtime type.",
                 nameof(THandler));
         }
 
@@ -121,10 +135,48 @@ public sealed class WkeelBuilder
         return this;
     }
 
+    /// <summary>Sets how notice handlers run for every notice type. Sequential by default.</summary>
+    /// <param name="configure">Chooses <see cref="NoticeOptions.Sequential"/> or <see cref="NoticeOptions.Parallel"/>.</param>
+    /// <returns>This builder, for chaining.</returns>
+    public WkeelBuilder Notices(Action<NoticeOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+
+        configure(_notices);
+        return this;
+    }
+
+    /// <summary>Sets how notice handlers run for one notice type, overriding <see cref="Notices(Action{NoticeOptions})"/>.</summary>
+    /// <typeparam name="TNotice">The concrete notice type.</typeparam>
+    /// <param name="configure">Chooses <see cref="NoticeOptions.Sequential"/> or <see cref="NoticeOptions.Parallel"/>.</param>
+    /// <returns>This builder, for chaining.</returns>
+    public WkeelBuilder Notices<TNotice>(Action<NoticeOptions> configure)
+        where TNotice : INotice
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+
+        // Same trap as a handler of an abstract message: this would quietly apply to nothing.
+        if (typeof(TNotice).IsAbstract)
+        {
+            throw new ArgumentException(
+                $"'{typeof(TNotice)}' is abstract, so this would apply to nothing: messages route on their exact runtime type.",
+                nameof(TNotice));
+        }
+
+        if (!_noticeOverrides.TryGetValue(typeof(TNotice), out var options))
+        {
+            _noticeOverrides[typeof(TNotice)] = options = new NoticeOptions();
+        }
+
+        configure(options);
+        return this;
+    }
+
     internal Registry Build()
     {
         var operations = new Dictionary<Type, List<HandlerContract>>();
         var requests = new Dictionary<Type, List<HandlerContract>>();
+        var notices = new HashSet<Type>();
 
         foreach (var (handlerType, lifetime) in _handlers)
         {
@@ -132,7 +184,13 @@ public sealed class WkeelBuilder
             {
                 _services.Add(new ServiceDescriptor(contract.ServiceType, handlerType, lifetime ?? _defaultLifetime));
 
-                var routes = contract.IsOperation ? operations : requests;
+                if (contract.Kind is MessageKind.Notice)
+                {
+                    notices.Add(contract.MessageType);
+                    continue;
+                }
+
+                var routes = contract.Kind is MessageKind.Operation ? operations : requests;
                 if (!routes.TryGetValue(contract.MessageType, out var contracts))
                 {
                     routes[contract.MessageType] = contracts = [];
@@ -142,8 +200,14 @@ public sealed class WkeelBuilder
             }
         }
 
-        return new Registry(ToRoutes(operations), ToRoutes(requests));
+        return new Registry(
+            ToRoutes(operations),
+            ToRoutes(requests),
+            notices.ToFrozenDictionary(notice => notice, notice => NoticeDispatch.Create(notice, IsParallel(notice))));
     }
+
+    private bool IsParallel(Type noticeType) =>
+        _noticeOverrides.GetValueOrDefault(noticeType)?.IsParallel ?? _notices.IsParallel ?? false;
 
     private FrozenDictionary<Type, Route> ToRoutes(Dictionary<Type, List<HandlerContract>> contracts) =>
         contracts.ToFrozenDictionary(

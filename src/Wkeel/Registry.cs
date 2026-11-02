@@ -10,11 +10,18 @@ internal sealed record Route(Delegate Invoker, IReadOnlyList<Type> HandlerTypes)
 /// Operations and requests are kept apart so that a type implementing both markers cannot reach
 /// the wrong handler kind.
 /// </remarks>
-internal sealed class Registry(FrozenDictionary<Type, Route> operations, FrozenDictionary<Type, Route> requests)
+internal sealed class Registry(
+    FrozenDictionary<Type, Route> operations,
+    FrozenDictionary<Type, Route> requests,
+    FrozenDictionary<Type, Func<IServiceProvider, object, CancellationToken, Task>> notices)
 {
     public Delegate Operation(Type messageType) => Find(operations, messageType);
 
     public Delegate Request(Type messageType) => Find(requests, messageType);
+
+    /// <summary>Finds the fan-out for a notice, or <see langword="null"/> when nothing handles it, which is not an error.</summary>
+    public Func<IServiceProvider, object, CancellationToken, Task>? Notice(Type noticeType) =>
+        notices.GetValueOrDefault(noticeType);
 
     private static Delegate Find(FrozenDictionary<Type, Route> routes, Type messageType)
     {

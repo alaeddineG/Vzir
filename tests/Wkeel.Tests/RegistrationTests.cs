@@ -48,6 +48,18 @@ public sealed class RegistrationTests
     }
 
     [Fact]
+    public void Handler_of_an_abstract_message_is_rejected_because_it_could_never_run()
+    {
+        var notice = Assert.Throws<ArgumentException>(() => Provider(w => w.AddHandler<HandlesEveryNotice>()));
+        var operation = Assert.Throws<ArgumentException>(() => Provider(w => w.AddHandler<HandlesAbstractOperation>()));
+        var request = Assert.Throws<ArgumentException>(() => Provider(w => w.AddHandler<HandlesAbstractRequest>()));
+
+        Assert.Contains(nameof(HandlesEveryNotice), notice.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(AbstractOperation), operation.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(AbstractRequest), request.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Handlers_are_transient_by_default()
     {
         var descriptors = new ServiceCollection().AddWkeel(w => w.AddHandler<StatefulHandler>());

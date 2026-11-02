@@ -3,11 +3,16 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Wkeel;
 
-/// <summary>One handler interface implemented by a handler type. Startup only: this is the reflection boundary.</summary>
-internal sealed record HandlerContract(Type HandlerType, Type ServiceType, Type MessageType, Type? ResultType)
+internal enum MessageKind
 {
-    public bool IsOperation => ResultType is null;
+    Operation,
+    Request,
+    Notice,
+}
 
+/// <summary>One handler interface implemented by a handler type. Startup only: this is the reflection boundary.</summary>
+internal sealed record HandlerContract(MessageKind Kind, Type HandlerType, Type ServiceType, Type MessageType, Type? ResultType)
+{
     public static IEnumerable<HandlerContract> Of(Type handlerType)
     {
         foreach (var serviceType in handlerType.GetInterfaces().Where(type => type.IsConstructedGenericType))
@@ -17,11 +22,15 @@ internal sealed record HandlerContract(Type HandlerType, Type ServiceType, Type 
 
             if (definition == typeof(IOperationHandler<>))
             {
-                yield return new HandlerContract(handlerType, serviceType, arguments[0], null);
+                yield return new HandlerContract(MessageKind.Operation, handlerType, serviceType, arguments[0], null);
             }
             else if (definition == typeof(IRequestHandler<,>))
             {
-                yield return new HandlerContract(handlerType, serviceType, arguments[0], arguments[1]);
+                yield return new HandlerContract(MessageKind.Request, handlerType, serviceType, arguments[0], arguments[1]);
+            }
+            else if (definition == typeof(INoticeHandler<>))
+            {
+                yield return new HandlerContract(MessageKind.Notice, handlerType, serviceType, arguments[0], null);
             }
         }
     }
