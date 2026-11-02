@@ -9,7 +9,7 @@ An in-process mediator for .NET. Route a message to its one handler, wrap the ca
 **Wkeel** is the Tunisian pronunciation of وكيل (*wakīl*), the person you delegate to. You hand it the request, it deals with the party you never see.
 
 > [!IMPORTANT]
-> Wkeel is pre-alpha and there is no NuGet package yet. `Execute`, `Notify`, interceptors and explicit handler registration work today. The snippets below show the full v1 API from the [PRD](docs/PRD.md), so scanning and startup validation are still to come and names may change. See the [roadmap](#roadmap).
+> Wkeel is pre-alpha and there is no NuGet package yet. The API in the snippets below works today, but names may change before `1.0.0`. See the [PRD](docs/PRD.md) and the [roadmap](#roadmap).
 
 ## Why
 
@@ -85,7 +85,8 @@ services.AddWkeel(w => w
     .Intercept(typeof(ValidationInterceptor<,>))           // runs inside LoggingInterceptor
     .Intercept<GetPatient, Patient, GetPatientCache>()     // closed, one request
     .Intercept<ArchivePatient, ArchivePatientAudit>()      // closed, one operation
-    .Notices<PatientArchived>(n => n.Parallel()));         // sequential unless you opt in
+    .Notices<PatientArchived>(n => n.Parallel())           // sequential unless you opt in
+    .ValidateOnBuild());                                   // opt-in; gate it on your environment
 ```
 
 An interceptor wraps everything inside it, and skips it all by not calling `next`:
@@ -103,7 +104,7 @@ sealed class LoggingInterceptor<TMessage, TResult>(ILogger<TMessage> log) : IInt
 }
 ```
 
-[`samples/Wkeel.Samples.Pipeline`](samples/Wkeel.Samples.Pipeline) runs a logging, validation, cache and audit chain:
+[`samples/Wkeel.Samples.Pipeline`](samples/Wkeel.Samples.Pipeline) scans and validates its handlers, then runs a logging, validation, cache and audit chain:
 
 ```sh
 dotnet run --project samples/Wkeel.Samples.Pipeline
@@ -115,7 +116,9 @@ dotnet run --project samples/Wkeel.Samples.Pipeline
 - **Interceptor order is registration order.** No `Order` property, no attributes. Order is visible in exactly one place.
 - **Generic constraints scope open interceptors.** `where TMessage : IValidated` applies an interceptor to those messages, and every other message skips it.
 - **`CancellationToken` is required** on every verb and every handler method.
-- **Configuration bugs can fail at startup.** `.ValidateOnBuild()` reports every missing or duplicate handler at once, with type names. It is opt-in, so gate it on your own environment. `Execute` still throws a typed exception at runtime.
+- **Configuration bugs can fail at startup.** `.ValidateOnBuild()` reports every missing or duplicate handler at once, with type names, as an `AggregateException` of the same typed exceptions `Execute` throws at runtime. It is opt-in, so gate it on your own environment.
+- **Scanning registers what `AddHandler` would.** It finds public and internal handlers, skips abstract classes and never overrides an explicit lifetime. It does not find interceptors, because their order has to stay visible. A generic base class has to be abstract, or the scan rejects it.
+- **Scan order is stable, not meaningful.** Scanned notice handlers run in ordinal order of their full type names. If order matters, register them with `AddHandler` before the scan.
 - **Notice handlers run sequentially by default.** The first exception stops the rest. Parallel is opt-in, globally or per notice type: every handler finishes, and failures come back as one `AggregateException`, unless the caller cancelled and nothing else went wrong. It shares the caller's scope, so it only suits handlers that stay away from non-thread-safe scoped services such as a `DbContext`. `Notify` is not intercepted in v1.
 - **Messages route on their exact runtime type.** A handler of a base notice does not receive derived notices, and a handler of an abstract message or interface is rejected at registration because it could never run.
 - **Reflection at startup, cached delegates at runtime.** No source generators in v1.
@@ -143,6 +146,8 @@ Wkeel is not a message bus: no transport, serialization, retry, outbox or schedu
 - MassTransit Courier has its own `bus.Execute(routingSlip)`. It only takes a `RoutingSlip`, so the two calls cannot be swapped by accident, but `Execute` is not unique across every MassTransit API.
 - `Notice` does not announce itself as a domain event. The docs have to say so.
 - Each interceptor costs a closure and its own instance per call. The zero-allocation path is the one with no interceptors.
+- Validation can only look for messages in scanned assemblies. If your messages live in a contracts assembly, scan that too, and expect any message handled by another service to be reported as missing.
+- A scan has no filter. It takes every handler in the assembly, so a test double or an unused handler has to live somewhere else.
 - There is no polymorphic notice handling. `INoticeHandler<INotice>` is rejected, so anything that must see every notice needs one handler per concrete type.
 - Parallel notify is concurrency, not threads. Handlers start in order on the calling thread and overlap at their awaits, so one that blocks synchronously holds up the rest.
 
@@ -153,7 +158,7 @@ Wkeel is not a message bus: no transport, serialization, retry, outbox or schedu
 | M0 Skeleton | `IWkeel.Execute`, explicit registration, delegate cache, typed exceptions | Done |
 | M1 Pipeline | `IInterceptor`, `IOperationInterceptor`, open and closed registration, ordering | Done |
 | M2 Notify | `INotice`, `IWkeel.Notify`, sequential and parallel, exception semantics | Done |
-| M3 Scanning and validation | `ScanAssembly`, `ValidateOnBuild` | Planned |
+| M3 Scanning and validation | `ScanAssembly`, `ValidateOnBuild` | Done |
 | M4 Performance and diagnostics | `Activity`, BenchmarkDotNet suite | Planned |
 | M5 Release | Migration guide, NuGet `1.0.0` | Planned |
 
