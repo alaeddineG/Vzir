@@ -1,0 +1,33 @@
+using System.Collections.Frozen;
+
+namespace Wkeel;
+
+/// <summary>The cached invoker for one message type. <c>Invoker</c> is typed by the message's result.</summary>
+internal sealed record Route(Delegate Invoker, IReadOnlyList<Type> HandlerTypes);
+
+/// <summary>Message type to route, built once at startup.</summary>
+/// <remarks>
+/// Operations and requests are kept apart so that a type implementing both markers cannot reach
+/// the wrong handler kind.
+/// </remarks>
+internal sealed class Registry(FrozenDictionary<Type, Route> operations, FrozenDictionary<Type, Route> requests)
+{
+    public Delegate Operation(Type messageType) => Find(operations, messageType);
+
+    public Delegate Request(Type messageType) => Find(requests, messageType);
+
+    private static Delegate Find(FrozenDictionary<Type, Route> routes, Type messageType)
+    {
+        if (!routes.TryGetValue(messageType, out var route))
+        {
+            throw new HandlerNotFoundException(messageType);
+        }
+
+        if (route.HandlerTypes.Count > 1)
+        {
+            throw new AmbiguousHandlerException(messageType, route.HandlerTypes);
+        }
+
+        return route.Invoker;
+    }
+}
