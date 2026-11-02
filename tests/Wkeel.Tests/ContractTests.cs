@@ -14,6 +14,7 @@ public sealed class ContractTests
             typeof(IWkeel),
             typeof(IOperationHandler<>),
             typeof(IRequestHandler<,>),
+            typeof(INoticeHandler<>),
             typeof(IInterceptor<,>),
             typeof(IOperationInterceptor<>),
         ];
@@ -52,6 +53,6 @@ public sealed class ContractTests
     [Fact]
     public void Runtime_exposes_only_its_registration_surface() =>
         Assert.Equal(
-            [typeof(WkeelBuilder), typeof(WkeelServiceCollectionExtensions)],
+            [typeof(NoticeOptions), typeof(WkeelBuilder), typeof(WkeelServiceCollectionExtensions)],
             typeof(WkeelBuilder).Assembly.GetExportedTypes().OrderBy(type => type.Name, StringComparer.Ordinal));
 }

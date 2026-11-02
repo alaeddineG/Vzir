@@ -26,4 +26,11 @@ internal sealed class Dispatcher(IServiceProvider services, Registry registry) :
             ? invoke(services, request, ct)
             : throw new HandlerNotFoundException(messageType);
     }
+
+    public Task Notify(INotice notice, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(notice);
+
+        return registry.Notice(notice.GetType()) is { } invoke ? invoke(services, notice, ct) : Task.CompletedTask;
+    }
 }
