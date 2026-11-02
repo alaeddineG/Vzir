@@ -9,7 +9,14 @@ public sealed class ContractTests
     [Fact]
     public void CancellationToken_is_required_on_every_verb_and_handler_method()
     {
-        Type[] types = [typeof(IWkeel), typeof(IOperationHandler<>), typeof(IRequestHandler<,>)];
+        Type[] types =
+        [
+            typeof(IWkeel),
+            typeof(IOperationHandler<>),
+            typeof(IRequestHandler<,>),
+            typeof(IInterceptor<,>),
+            typeof(IOperationInterceptor<>),
+        ];
         var methods = types.SelectMany(type => type.GetMethods()).ToArray();
 
         Assert.NotEmpty(methods);
@@ -41,4 +48,10 @@ public sealed class ContractTests
     [Fact]
     public void Abstractions_stay_under_fifteen_public_types() =>
         Assert.True(typeof(IWkeel).Assembly.GetExportedTypes().Length < 15);
+
+    [Fact]
+    public void Runtime_exposes_only_its_registration_surface() =>
+        Assert.Equal(
+            [typeof(WkeelBuilder), typeof(WkeelServiceCollectionExtensions)],
+            typeof(WkeelBuilder).Assembly.GetExportedTypes().OrderBy(type => type.Name, StringComparer.Ordinal));
 }
