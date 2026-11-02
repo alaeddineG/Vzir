@@ -1,6 +1,6 @@
 # Contributing to Wkeel
 
-Wkeel is pre-alpha. Milestone M0 is in and the rest of the v1 API is still being built from the [PRD](docs/PRD.md), so scrutiny of the design is as useful as code.
+Wkeel is pre-alpha. Milestones M0 and M1 are in and the rest of the v1 API is still being built from the [PRD](docs/PRD.md), so scrutiny of the design is as useful as code.
 
 ## Ways to help
 
