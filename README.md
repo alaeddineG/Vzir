@@ -9,7 +9,7 @@ An in-process mediator for .NET. Route a message to its one handler, wrap the ca
 **Wkeel** is the Tunisian pronunciation of وكيل (*wakīl*), the person you delegate to. You hand it the request, it deals with the party you never see.
 
 > [!IMPORTANT]
-> Wkeel is pre-alpha and there is no NuGet package yet. `Execute`, interceptors and explicit handler registration work today. The snippets below show the full v1 API from the [PRD](docs/PRD.md), so `Notify` and scanning are still to come and names may change. See the [roadmap](#roadmap).
+> Wkeel is pre-alpha and there is no NuGet package yet. `Execute`, `Notify`, interceptors and explicit handler registration work today. The snippets below show the full v1 API from the [PRD](docs/PRD.md), so scanning and startup validation are still to come and names may change. See the [roadmap](#roadmap).
 
 ## Why
 
@@ -84,7 +84,8 @@ services.AddWkeel(w => w
     .Intercept(typeof(LoggingInterceptor<,>))              // open generic, all messages, outermost
     .Intercept(typeof(ValidationInterceptor<,>))           // runs inside LoggingInterceptor
     .Intercept<GetPatient, Patient, GetPatientCache>()     // closed, one request
-    .Intercept<ArchivePatient, ArchivePatientAudit>());    // closed, one operation
+    .Intercept<ArchivePatient, ArchivePatientAudit>()      // closed, one operation
+    .Notices<PatientArchived>(n => n.Parallel()));         // sequential unless you opt in
 ```
 
 An interceptor wraps everything inside it, and skips it all by not calling `next`:
@@ -115,7 +116,8 @@ dotnet run --project samples/Wkeel.Samples.Pipeline
 - **Generic constraints scope open interceptors.** `where TMessage : IValidated` applies an interceptor to those messages, and every other message skips it.
 - **`CancellationToken` is required** on every verb and every handler method.
 - **Configuration bugs can fail at startup.** `.ValidateOnBuild()` reports every missing or duplicate handler at once, with type names. It is opt-in, so gate it on your own environment. `Execute` still throws a typed exception at runtime.
-- **Notice handlers run sequentially by default.** The first exception stops the rest. Parallel is opt-in and shares the caller's scope, so it only suits handlers that stay away from non-thread-safe scoped services such as a `DbContext`. `Notify` is not intercepted in v1.
+- **Notice handlers run sequentially by default.** The first exception stops the rest. Parallel is opt-in, globally or per notice type: every handler finishes, and failures come back as one `AggregateException`, unless the caller cancelled and nothing else went wrong. It shares the caller's scope, so it only suits handlers that stay away from non-thread-safe scoped services such as a `DbContext`. `Notify` is not intercepted in v1.
+- **Messages route on their exact runtime type.** A handler of a base notice does not receive derived notices, and a handler of an abstract message or interface is rejected at registration because it could never run.
 - **Reflection at startup, cached delegates at runtime.** No source generators in v1.
 
 ## Not in scope
@@ -141,6 +143,8 @@ Wkeel is not a message bus: no transport, serialization, retry, outbox or schedu
 - MassTransit Courier has its own `bus.Execute(routingSlip)`. It only takes a `RoutingSlip`, so the two calls cannot be swapped by accident, but `Execute` is not unique across every MassTransit API.
 - `Notice` does not announce itself as a domain event. The docs have to say so.
 - Each interceptor costs a closure and its own instance per call. The zero-allocation path is the one with no interceptors.
+- There is no polymorphic notice handling. `INoticeHandler<INotice>` is rejected, so anything that must see every notice needs one handler per concrete type.
+- Parallel notify is concurrency, not threads. Handlers start in order on the calling thread and overlap at their awaits, so one that blocks synchronously holds up the rest.
 
 ## Roadmap
 
@@ -148,7 +152,7 @@ Wkeel is not a message bus: no transport, serialization, retry, outbox or schedu
 |---|---|---|
 | M0 Skeleton | `IWkeel.Execute`, explicit registration, delegate cache, typed exceptions | Done |
 | M1 Pipeline | `IInterceptor`, `IOperationInterceptor`, open and closed registration, ordering | Done |
-| M2 Notify | `INotice`, `IWkeel.Notify`, sequential and parallel, exception semantics | Planned |
+| M2 Notify | `INotice`, `IWkeel.Notify`, sequential and parallel, exception semantics | Done |
 | M3 Scanning and validation | `ScanAssembly`, `ValidateOnBuild` | Planned |
 | M4 Performance and diagnostics | `Activity`, BenchmarkDotNet suite | Planned |
 | M5 Release | Migration guide, NuGet `1.0.0` | Planned |
