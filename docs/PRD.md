@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Draft v0.6 |
+| Status | Draft v0.7 |
 | Date | 2026-11-02 |
 | Owner | Aladdin |
 | Target | .NET 10, C# 14 |
@@ -77,7 +77,7 @@ Settled by one criterion: **no verb may collide with the verbs a bus puts on eve
 ```csharp
 await wkeel.Execute(new ArchivePatient(id), ct);                   // in-process, void
 var p = await wkeel.Execute(new GetPatient(id), ct);               // in-process, returns Patient
-await wkeel.Notify(new PatientArchived(id), ct);                   // in-process, fan-out
+await wkeel.Notify(new PatientArchived(id, at), ct);               // in-process, fan-out
 await bus.Publish(new PatientArchivedIntegrationEvent(id), ct);    // network (MassTransit)
 ```
 
@@ -143,10 +143,10 @@ Three different verbs, three different meanings. A reader never needs the receiv
 | F9 | `IInterceptor<TMessage, TResult>` wraps `Execute` for both `IOperation` and `IRequest<T>` | Must |
 | F10 | Open-generic interceptor registration applies to all executed messages that satisfy the interceptor's generic constraints; other messages skip it silently. The type must be a concrete class with two type parameters implementing `IInterceptor<,>` over them, in either order; anything else is rejected at registration | Must |
 | F11 | Closed interceptor registration applies to one message type: `IInterceptor<TRequest, TResult>` for a request, `IOperationInterceptor<TOperation>` for an operation | Must |
-| F12 | Interceptor execution order equals registration order in `AddWkeel`; no `Order` property, no attribute | Must |
+| F12 | Interceptor execution order equals registration order in `AddWkeel`; no `Order` property, no attribute. Each registration counts, so an interceptor registered twice runs twice | Must |
 | F13 | Interceptors may short-circuit by not calling `next` | Must |
 | F14 | `Notify` is not intercepted in v1 | Must (explicit non-feature) |
-| F15 | Assembly scanning registers every handler in the given assemblies, public or not, as `AddHandler` would. Abstract classes are skipped as base classes; anything else `AddHandler` rejects is rejected, such as an open-generic or struct handler, or a handler of an abstract message (F27). Interceptors are not scanned (D6) | Must |
+| F15 | Assembly scanning registers every handler in the given assemblies, public or not, as `AddHandler` would. Abstract classes are skipped as base classes; anything else `AddHandler` rejects is rejected, such as an open-generic or struct handler, or a handler of an abstract message (F27). Interceptors are not scanned (D6). An assembly with a type that cannot load fails the scan with `ReflectionTypeLoadException`, because registering part of it would hide handlers | Must |
 | F16 | Explicit registration of a single handler type is possible without scanning | Should |
 | F17 | Handler lifetime defaults to Transient; `HandlerLifetime` changes the default and `AddHandler<T>(lifetime)` overrides it per registration. Only Transient and Scoped are accepted, because a Singleton handler would capture root-scope dependencies and break F21 | Should |
 | F18 | Startup validation (explicit opt-in via `ValidateOnBuild()`): every concrete `IOperation` and `IRequest<T>` type found in scanned assemblies has a handler, and no message has more than one, wherever its handlers came from. Problems throw from `AddWkeel` as one `AggregateException` of the F19 and F20 exceptions, listing all of them, even when there is only one. Each `IRequest<T>` a message implements counts, so the check answers for what `Execute` would do. Not checked: messages in assemblies that were not scanned, open-generic messages, and notices (F4) | Must |
@@ -159,6 +159,7 @@ Three different verbs, three different meanings. A reader never needs the receiv
 | F25 | Interceptors are Transient unless the application registers them itself, and are resolved from the caller's scope only when the chain reaches them | Must |
 | F26 | `Notify` routes on the notice's exact runtime type, like `Execute`. A handler of a base notice does not receive derived notices, and a notice that reaches no handler this way is silent under F4 | Must |
 | F27 | Anything that targets an abstract message type or interface is rejected at registration, because exact-type routing means it could never apply: a handler of one (such as `INoticeHandler<INotice>`), for all three message kinds, and `Notices<T>` | Must |
+| F28 | `IWkeelRegistry`, a read-only singleton, lists every routed message and its handlers in registration order, by message kind. A message with several handlers is listed with all of them | Should |
 
 ### 3.2 Non-functional
 
@@ -227,6 +228,14 @@ public interface IWkeel
     Task Execute(IOperation operation, CancellationToken ct);
     Task<TResult> Execute<TResult>(IRequest<TResult> request, CancellationToken ct);
     Task Notify(INotice notice, CancellationToken ct);
+}
+
+// Tooling
+public interface IWkeelRegistry
+{
+    IReadOnlyDictionary<Type, IReadOnlyList<Type>> Operations { get; }
+    IReadOnlyDictionary<Type, IReadOnlyList<Type>> Requests { get; }
+    IReadOnlyDictionary<Type, IReadOnlyList<Type>> Notices { get; }
 }
 
 // Exceptions
@@ -309,7 +318,7 @@ sealed class LoggingInterceptor<TMessage, TResult>(ILogger<TMessage> log) : IInt
   │   IOperation, IRequest<T>, INotice                               │
   │   IOperationHandler<>, IRequestHandler<,>, INoticeHandler<>      │
   │   IInterceptor<,>, IOperationInterceptor<>, Next<T>, Next        │
-  │   IWkeel, exceptions                                             │
+  │   IWkeel, IWkeelRegistry, exceptions                             │
   └──────────────────────────────────────────────────────────────────┘
                                    ▲
                                    │ references
@@ -376,6 +385,9 @@ Each is Context / Decision / Consequences in one row.
 | D21 | A scan sorts handlers by full type name | `GetTypes` follows compiler output, so a renamed or added file could silently reorder sequential notice handlers (F5). Ordinal comparison gives every build and machine the same order | The order is stable but not meaningful. A notice whose handlers depend on order registers them with `AddHandler` before the scan |
 | D22 | Tracing runs behind `HasListeners`, in an async wrapper around the whole chain | Keeping an `Activity` open until the handler finishes takes an async method, which N3 cannot afford on the common path. The same method is what stops `Activity.Current` leaking to the caller, because a non-async `Execute` would leave it set | With a listener, a handler that throws synchronously faults the returned `Task` instead of throwing from the call. `await` sees no difference |
 | D23 | One `Activity` per `Notify`, not per handler, with the handlers in one string tag | N9 asks for one per verb, and a string keeps `wkeel.handler` one type across both verbs, which tracing backends expect | No per-handler timing, and no way to see which handler failed except the exception. A handler that needs its own timing starts its own `Activity` |
+| D24 | `IWkeelRegistry` is three dictionaries of types, with no entry type of its own | Q4 asks for a list of messages and handlers, and the shape has to survive 1.0. An entry record plus a kind enum would take `Wkeel.Abstractions` to 15 public types and break N8 | One new public type. It exposes nothing about interceptors, and a request's result type has to be read from the message type |
+| D25 | Release from a version tag through NuGet Trusted Publishing | A stored API key is a long-lived secret, and a nuget.org version can never be deleted or replaced. A short-lived OIDC key scoped to `release.yml` removes the secret, and the workflow refuses a tag that disagrees with `VersionPrefix` | The first publish needs a policy on nuget.org. `release.yml` cannot be exercised without publishing |
+| D26 | `Microsoft.Extensions.DependencyInjection.Abstractions` is held at `10.0.0` | A library's floor should be the lowest version it needs, so it does not move consumers onto a newer patch | Dependabot ignores that package. Tests and samples still resolve the current patch through `Microsoft.Extensions.DependencyInjection` |
 
 ---
 
@@ -388,7 +400,7 @@ Each is Context / Decision / Consequences in one row.
 | M2 Notify | `INotice`, `INoticeHandler<T>`, `IWkeel.Notify`, sequential + parallel, exception semantics | Tests for 0, 1, n handlers, both modes |
 | M3 Scanning + validation | `ScanAssembly`, `ValidateOnBuild` | Missing/duplicate handler caught at build with all errors listed |
 | M4 Perf + diagnostics | `Activity`, BenchmarkDotNet suite | N3, N4 met and published in README |
-| M5 Release | README, migration guide from MediatR, NuGet `1.0.0` | Package IDs `Wkeel` and `Wkeel.Abstractions` published |
+| M5 Release | README, migration guide from MediatR, `IWkeelRegistry`, tag-driven release workflow, NuGet `1.0.0` | Package IDs `Wkeel` and `Wkeel.Abstractions` published |
 
 Section 4.1 is the v1 target surface. Contracts land with the milestone that implements them, so nothing public exists that does not work yet.
 
@@ -399,9 +411,9 @@ Section 4.1 is the v1 target surface. Contracts land with the milestone that imp
 | # | Question | Default if unanswered |
 |---|---|---|
 | Q1 | `ValueTask` on `IWkeel` verbs for the zero-allocation path? | Resolved: `Task`. N3 is met by returning the handler's `Task` directly, so `ValueTask` on the verbs buys nothing |
-| Q2 | Should handlers be able to declare `Scoped` lifetime via attribute, or registration only? | Registration only; attributes hide lifetime |
-| Q3 | Notice handler ordering when parallel is off: registration order or declared `IOrderedNoticeHandler`? | Registration order; no ordering interface |
-| Q4 | Expose the `Registry` for tooling (list all messages and handlers)? | Yes, read-only, `IWkeelRegistry` singleton, cheap and useful for docs generation |
+| Q2 | Should handlers be able to declare `Scoped` lifetime via attribute, or registration only? | Resolved: registration only. Attributes hide lifetime |
+| Q3 | Notice handler ordering when parallel is off: registration order or declared `IOrderedNoticeHandler`? | Resolved: registration order, no ordering interface |
+| Q4 | Expose the `Registry` for tooling (list all messages and handlers)? | Resolved: yes, read-only, as the `IWkeelRegistry` singleton (F28, D24) |
 
 ---
 
