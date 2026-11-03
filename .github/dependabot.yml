@@ -12,3 +12,6 @@ updates:
       microsoft-extensions:
         patterns:
           - Microsoft.Extensions.*
+    ignore:
+      # Held at the floor the Wkeel package declares. Raise it only when Wkeel needs a newer API.
+      - dependency-name: Microsoft.Extensions.DependencyInjection.Abstractions
