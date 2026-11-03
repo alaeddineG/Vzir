@@ -5,7 +5,10 @@ namespace Wkeel;
 /// <summary>Registers Wkeel with an <see cref="IServiceCollection"/>.</summary>
 public static class WkeelServiceCollectionExtensions
 {
-    /// <summary>Registers <see cref="IWkeel"/> as scoped, along with the configured handlers.</summary>
+    /// <summary>
+    /// Registers <see cref="IWkeel"/> as scoped and <see cref="IWkeelRegistry"/> as a singleton,
+    /// along with the configured handlers.
+    /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="configure">Configures handlers, their lifetimes and the interceptor chain.</param>
     /// <returns>The same service collection, for chaining.</returns>
@@ -24,7 +27,9 @@ public static class WkeelServiceCollectionExtensions
         var builder = new WkeelBuilder(services);
         configure(builder);
 
-        services.AddSingleton(builder.Build());
+        var registry = builder.Build();
+        services.AddSingleton(registry);
+        services.AddSingleton<IWkeelRegistry>(registry);
         services.AddScoped<IWkeel, Dispatcher>();
         return services;
     }

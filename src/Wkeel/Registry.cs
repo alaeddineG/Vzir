@@ -13,14 +13,23 @@ internal sealed record Route(Delegate Invoker, IReadOnlyList<Type> HandlerTypes,
 internal sealed class Registry(
     FrozenDictionary<Type, Route> operations,
     FrozenDictionary<Type, Route> requests,
-    FrozenDictionary<Type, Route> notices)
+    FrozenDictionary<Type, Route> notices) : IWkeelRegistry
 {
+    public IReadOnlyDictionary<Type, IReadOnlyList<Type>> Operations { get; } = HandlersOf(operations);
+
+    public IReadOnlyDictionary<Type, IReadOnlyList<Type>> Requests { get; } = HandlersOf(requests);
+
+    public IReadOnlyDictionary<Type, IReadOnlyList<Type>> Notices { get; } = HandlersOf(notices);
+
     public Route Operation(Type messageType) => Find(operations, messageType);
 
     public Route Request(Type messageType) => Find(requests, messageType);
 
     /// <summary>Finds the fan-out for a notice, or <see langword="null"/> when nothing handles it, which is not an error.</summary>
     public Route? Notice(Type noticeType) => notices.GetValueOrDefault(noticeType);
+
+    private static FrozenDictionary<Type, IReadOnlyList<Type>> HandlersOf(FrozenDictionary<Type, Route> routes) =>
+        routes.ToFrozenDictionary(entry => entry.Key, entry => entry.Value.HandlerTypes);
 
     private static Route Find(FrozenDictionary<Type, Route> routes, Type messageType)
     {
