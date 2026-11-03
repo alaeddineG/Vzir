@@ -159,6 +159,20 @@ public sealed class InterceptorTests
     }
 
     [Fact]
+    public async Task Registering_an_interceptor_twice_runs_it_twice()
+    {
+        using var provider = Configured(w => w
+            .AddHandler<ArchiveHandler>()
+            .Intercept(typeof(Outer<,>))
+            .Intercept(typeof(Outer<,>)));
+        using var scope = provider.CreateScope();
+
+        await scope.ServiceProvider.GetRequiredService<IWkeel>().Execute(new Archive(7), Ct);
+
+        Assert.Equal(["outer:in", "outer:in", new Archive(7), "outer:out", "outer:out"], _journal.Entries);
+    }
+
+    [Fact]
     public async Task Request_chain_runs_in_registration_order_across_open_and_closed()
     {
         using var provider = Configured(w => w

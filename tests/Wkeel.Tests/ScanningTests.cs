@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Wkeel.Tests.ScanTarget;
 using static Wkeel.Tests.Fixture;
@@ -30,6 +31,10 @@ public sealed class ScanningTests
         Assert.Equal("PublicRequestHandler", result);
         Assert.Equal(["InternalOperationHandler", "NestedPrivateListener", "ClosedListener"], seen);
     }
+
+    [Fact]
+    public void Scan_fails_rather_than_register_part_of_an_assembly_that_cannot_load() =>
+        Assert.Throws<ReflectionTypeLoadException>(() => Provider(w => w.ScanAssembly(new UnloadableAssembly())));
 
     [Fact]
     public async Task ScanAssemblyContaining_scans_the_assembly_that_defines_the_type()
