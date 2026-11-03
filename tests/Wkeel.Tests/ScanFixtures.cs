@@ -8,6 +8,13 @@ internal sealed class TypesAssembly(params Type[] types) : Assembly
     public override Type[] GetTypes() => types;
 }
 
+/// <summary>An assembly with a type that cannot load, such as one built against a missing dependency.</summary>
+internal sealed class UnloadableAssembly : Assembly
+{
+    public override Type[] GetTypes() =>
+        throw new ReflectionTypeLoadException([typeof(ArchiveHandler), null], [new TypeLoadException("unloadable")]);
+}
+
 internal sealed class OpenListener<TNotice> : INoticeHandler<TNotice>
     where TNotice : INotice
 {
