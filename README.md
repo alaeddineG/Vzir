@@ -1,15 +1,20 @@
 # Wkeel
 
-[![License: MIT](https://img.shields.io/github/license/alaeddineG/Wkeel)](LICENSE)
+[![NuGet](https://img.shields.io/nuget/v/Wkeel)](https://www.nuget.org/packages/Wkeel)
+[![License: MIT](https://img.shields.io/github/license/alaeddineG/Wkeel)](https://github.com/alaeddineG/Wkeel/blob/main/LICENSE)
 [![.NET 10](https://img.shields.io/badge/.NET-10-512BD4)](https://dotnet.microsoft.com/download/dotnet/10.0)
-[![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-orange)](#roadmap)
 
 An in-process mediator for .NET. Route a message to its one handler, wrap the call in interceptors, fan a notice out to whoever listens. No transport, no framework, one dependency.
 
 **Wkeel** is the Tunisian pronunciation of وكيل (*wakīl*), the person you delegate to. You hand it the request, it deals with the party you never see.
 
-> [!IMPORTANT]
-> Wkeel is pre-alpha and there is no NuGet package yet. The API in the snippets below works today, but names may change before `1.0.0`. See the [PRD](docs/PRD.md) and the [roadmap](#roadmap).
+## Install
+
+```sh
+dotnet add package Wkeel
+```
+
+`Wkeel` is the runtime and depends only on `Microsoft.Extensions.DependencyInjection.Abstractions`. Domain assemblies that only define messages and handlers can reference [`Wkeel.Abstractions`](https://www.nuget.org/packages/Wkeel.Abstractions) instead, which has no dependencies. Both target .NET 10.
 
 ## Why
 
@@ -26,7 +31,7 @@ The sharper problem is vocabulary. In a codebase that also uses MassTransit, `me
 ```csharp
 await wkeel.Execute(new ArchivePatient(id), ct);                   // in-process, void
 var patient = await wkeel.Execute(new GetPatient(id), ct);         // in-process, returns Patient
-await wkeel.Notify(new PatientArchived(id), ct);                   // in-process, fan-out
+await wkeel.Notify(new PatientArchived(id, at), ct);               // in-process, fan-out
 await bus.Publish(new PatientArchivedIntegrationEvent(id), ct);    // network (MassTransit)
 ```
 
@@ -104,11 +109,13 @@ sealed class LoggingInterceptor<TMessage, TResult>(ILogger<TMessage> log) : IInt
 }
 ```
 
-[`samples/Wkeel.Samples.Pipeline`](samples/Wkeel.Samples.Pipeline) scans and validates its handlers, then runs a logging, validation, cache and audit chain:
+[`samples/Wkeel.Samples.Pipeline`](https://github.com/alaeddineG/Wkeel/tree/main/samples/Wkeel.Samples.Pipeline) scans and validates its handlers, then runs a logging, validation, cache and audit chain:
 
 ```sh
 dotnet run --project samples/Wkeel.Samples.Pipeline
 ```
+
+Run that from a clone of the repository.
 
 ## Diagnostics
 
@@ -125,6 +132,13 @@ services.AddOpenTelemetry().WithTracing(tracing => tracing.AddSource("Wkeel"));
 | `wkeel.handler` | The handler type. On `Notify`, every handler in run order, joined by `, `, and absent when there are none |
 
 Handlers and interceptors run inside the `Activity`. A failure sets `Error` status and records an exception event, and a caller's cancellation does neither. A missing or ambiguous handler throws before dispatch, so it reports no `Activity`. Logging stays in interceptors.
+
+For tooling, `IWkeelRegistry` is a singleton that lists every routed message and its handlers, by message kind:
+
+```csharp
+var registry = provider.GetRequiredService<IWkeelRegistry>();
+var handlers = registry.Notices[typeof(PatientArchived)];
+```
 
 ## Performance
 
@@ -153,11 +167,11 @@ dotnet run -c Release --project benchmarks/Wkeel.Benchmarks -- --filter '*'
 ## Design rules
 
 - **Handlers share the caller's scope.** `IWkeel` is scoped and never creates a scope of its own, so a handler's `DbContext` is the caller's `DbContext`.
-- **Interceptor order is registration order.** No `Order` property, no attributes. Order is visible in exactly one place.
+- **Interceptor order is registration order.** No `Order` property, no attributes. Order is visible in exactly one place. An interceptor registered twice runs twice.
 - **Generic constraints scope open interceptors.** `where TMessage : IValidated` applies an interceptor to those messages, and every other message skips it.
 - **`CancellationToken` is required** on every verb and every handler method.
 - **Configuration bugs can fail at startup.** `.ValidateOnBuild()` reports every missing or duplicate handler at once, with type names, as an `AggregateException` of the same typed exceptions `Execute` throws at runtime. It is opt-in, so gate it on your own environment.
-- **Scanning registers what `AddHandler` would.** It finds public and internal handlers, skips abstract classes and never overrides an explicit lifetime. It does not find interceptors, because their order has to stay visible. A generic base class has to be abstract, or the scan rejects it.
+- **Scanning registers what `AddHandler` would.** It finds public and internal handlers, skips abstract classes and never overrides an explicit lifetime. It does not find interceptors, because their order has to stay visible. A generic base class has to be abstract, or the scan rejects it. An assembly with a type that cannot load fails the scan with `ReflectionTypeLoadException`, rather than registering part of it.
 - **Scan order is stable, not meaningful.** Scanned notice handlers run in ordinal order of their full type names. If order matters, register them with `AddHandler` before the scan.
 - **Notice handlers run sequentially by default.** The first exception stops the rest. Parallel is opt-in, globally or per notice type: every handler finishes, and failures come back as one `AggregateException`, unless the caller cancelled and nothing else went wrong. It shares the caller's scope, so it only suits handlers that stay away from non-thread-safe scoped services such as a `DbContext`. `Notify` is not intercepted in v1.
 - **Messages route on their exact runtime type.** A handler of a base notice does not receive derived notices, and a handler of an abstract message or interface is rejected at registration because it could never run.
@@ -178,7 +192,7 @@ Wkeel is not a message bus: no transport, serialization, retry, outbox or schedu
 | `IRequest<T>` | `IRequest<T>` |
 | `IPipelineBehavior<,>` | `IInterceptor<,>` |
 
-`IRequest<T>` and `IRequestHandler<,>` deliberately keep MediatR's names. A file importing both libraries gets CS0104, so **migrate per assembly, not per file**. A full migration guide is planned for 1.0.
+`IRequest<T>` and `IRequestHandler<,>` deliberately keep MediatR's names. A file importing both libraries gets CS0104, so **migrate per assembly, not per file**. The [migration guide](https://github.com/alaeddineG/Wkeel/blob/main/docs/migrating-from-mediatr.md) covers the full mapping, the features with no equivalent and the behavior that changes without a compile error.
 
 ## Known trade-offs
 
@@ -192,25 +206,18 @@ Wkeel is not a message bus: no transport, serialization, retry, outbox or schedu
 - `Notify` reports one `Activity`, not one per handler. There is no per-handler timing, so a handler that needs it has to start its own `Activity`.
 - Parallel notify is concurrency, not threads. Handlers start in order on the calling thread and overlap at their awaits, so one that blocks synchronously holds up the rest.
 
-## Roadmap
+## Versioning
 
-| Milestone | Scope | Status |
-|---|---|---|
-| M0 Skeleton | `IWkeel.Execute`, explicit registration, delegate cache, typed exceptions | Done |
-| M1 Pipeline | `IInterceptor`, `IOperationInterceptor`, open and closed registration, ordering | Done |
-| M2 Notify | `INotice`, `IWkeel.Notify`, sequential and parallel, exception semantics | Done |
-| M3 Scanning and validation | `ScanAssembly`, `ValidateOnBuild` | Done |
-| M4 Performance and diagnostics | `Activity`, BenchmarkDotNet suite | Done |
-| M5 Release | Migration guide, NuGet `1.0.0` | Planned |
+Wkeel follows [Semantic Versioning](https://semver.org/), and the two packages share one version number. A breaking change means a compile or binary break in the public API, or a change to documented behavior such as ordering, exception types or scoping. Adding a member to an interface in `Wkeel.Abstractions` counts as breaking, because applications implement those interfaces. Changes are listed in the [changelog](https://github.com/alaeddineG/Wkeel/blob/main/CHANGELOG.md).
 
-The [PRD](docs/PRD.md) holds the requirements, the full vocabulary rationale, the decision log and the open questions.
+The [PRD](https://github.com/alaeddineG/Wkeel/blob/main/docs/PRD.md) holds the requirements, the full vocabulary rationale and the decision log.
 
 ## Contributing
 
-Issues and design proposals are welcome, read [CONTRIBUTING.md](CONTRIBUTING.md) first. The open questions in [PRD section 8](docs/PRD.md#8-open-questions) are a good place to start.
+Issues and design proposals are welcome, read [CONTRIBUTING.md](https://github.com/alaeddineG/Wkeel/blob/main/CONTRIBUTING.md) first.
 
-This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
+This project follows the [Code of Conduct](https://github.com/alaeddineG/Wkeel/blob/main/CODE_OF_CONDUCT.md). To report a vulnerability, see [SECURITY.md](https://github.com/alaeddineG/Wkeel/blob/main/SECURITY.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/alaeddineG/Wkeel/blob/main/LICENSE)

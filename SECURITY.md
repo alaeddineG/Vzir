@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Wkeel has not been released, so there are no supported versions yet. This section will list them once `1.0.0` ships.
+Security fixes go to the latest release of the current major version, so upgrade to that version to receive one.
 
 ## Reporting a vulnerability
 
