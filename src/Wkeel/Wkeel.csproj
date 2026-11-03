@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>An in-process mediator for .NET: route a message to its one handler, resolved from the caller's scope.</Description>
+    <Description>An in-process mediator for .NET: Execute, Notify, interceptors and startup validation. MIT licensed, one dependency.</Description>
   </PropertyGroup>
 
   <ItemGroup>

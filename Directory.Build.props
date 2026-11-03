@@ -12,14 +12,14 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <VersionPrefix>0.1.0</VersionPrefix>
-    <VersionSuffix>alpha</VersionSuffix>
+    <VersionPrefix>1.0.0</VersionPrefix>
     <Authors>Alaeddine Gallas</Authors>
     <Copyright>Copyright (c) 2026 Alaeddine Gallas</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/alaeddineG/Wkeel</PackageProjectUrl>
     <RepositoryUrl>https://github.com/alaeddineG/Wkeel</RepositoryUrl>
     <PackageTags>mediator;in-process;domain-events;pipeline</PackageTags>
+    <PackageReleaseNotes>https://github.com/alaeddineG/Wkeel/blob/main/CHANGELOG.md</PackageReleaseNotes>
   </PropertyGroup>
 
 </Project>
